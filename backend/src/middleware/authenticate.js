@@ -21,6 +21,7 @@ async function authenticate(req, res, next) {
                 id: true,
                 name: true,
                 email: true,
+                role: true,
                 apiKey: true,
                 isActive: true
             }
