@@ -1,0 +1,191 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Merchant {
+  id          String   @id @default(uuid())
+  name        String
+  email       String   @unique
+  password    String
+  apiKey      String   @unique @default(uuid())
+  webhookUrl  String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  paymentIntents  PaymentIntent[]
+  settlements     Settlement[]
+  webhookLogs     WebhookLog[]
+  reconReports    ReconciliationReport[]
+
+  @@map("merchants")
+}
+
+enum PaymentMethod {
+  CARD
+  UPI
+  NET_BANKING
+  WALLET
+}
+
+enum PaymentStatus {
+  CREATED
+  PROCESSING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+model PaymentIntent {
+  id             String        @id @default(uuid())
+  merchantId     String
+  amount         Int
+  currency       String        @default("INR")
+  method         PaymentMethod
+  status         PaymentStatus @default(CREATED)
+  idempotencyKey String        @unique
+  metadata       Json?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  merchant     Merchant      @relation(fields: [merchantId], references: [id])
+  transactions Transaction[]
+
+  @@map("payment_intents")
+}
+
+enum Gateway {
+  RAZORX
+  STRIPEIN
+  PAYFLOW
+  SWIFTPAY
+}
+
+enum TransactionStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+model Transaction {
+  id             String            @id @default(uuid())
+  intentId       String
+  gateway        Gateway
+  amount         Int
+  status         TransactionStatus @default(PENDING)
+  gatewayTxnId   String?
+  latencyMs      Int?
+  feeAmount      Int?
+  failureReason  String?
+  createdAt      DateTime          @default(now())
+
+  intent        PaymentIntent  @relation(fields: [intentId], references: [id])
+  ledgerEntries LedgerEntry[]
+
+  @@map("transactions")
+}
+
+model GatewayStat {
+  id            String        @id @default(uuid())
+  gateway       Gateway
+  method        PaymentMethod
+  successCount  Int           @default(0)
+  failureCount  Int           @default(0)
+  avgLatencyMs  Int           @default(0)
+  lastUpdated   DateTime      @default(now())
+
+  @@unique([gateway, method])
+  @@map("gateway_stats")
+}
+
+enum LedgerEntryType {
+  DEBIT
+  CREDIT
+}
+
+enum LedgerAccount {
+  CUSTOMER_RECEIVABLE
+  MERCHANT_PAYABLE
+  PLATFORM_REVENUE
+  MERCHANT_BANK
+}
+
+model LedgerEntry {
+  id          String          @id @default(uuid())
+  txnId       String
+  entryType   LedgerEntryType
+  account     LedgerAccount
+  amount      Int
+  createdAt   DateTime        @default(now())
+
+  transaction Transaction @relation(fields: [txnId], references: [id])
+
+  @@map("ledger_entries")
+}
+
+enum SettlementStatus {
+  PENDING
+  PROCESSING
+  SETTLED
+}
+
+model Settlement {
+  id             String           @id @default(uuid())
+  merchantId     String
+  amount         Int
+  status         SettlementStatus @default(PENDING)
+  gateway        Gateway
+  settlementDate DateTime
+  createdAt      DateTime         @default(now())
+
+  merchant Merchant @relation(fields: [merchantId], references: [id])
+
+  @@map("settlements")
+}
+
+enum ReconStatus {
+  CLEAN
+  FLAGGED
+}
+
+model ReconciliationReport {
+  id            String      @id @default(uuid())
+  merchantId    String
+  runDate       DateTime
+  totalTxns     Int
+  matched       Int
+  mismatched    Int
+  missing       Int
+  discrepancies Json?
+  status        ReconStatus @default(CLEAN)
+  createdAt     DateTime    @default(now())
+
+  merchant Merchant @relation(fields: [merchantId], references: [id])
+
+  @@map("reconciliation_reports")
+}
+
+enum WebhookStatus {
+  PENDING
+  DELIVERED
+  FAILED
+}
+
+model WebhookLog {
+  id              String        @id @default(uuid())
+  merchantId      String
+  event           String
+  payload         Json
+  attempts        Int           @default(0)
+  lastAttemptedAt DateTime?
+  deliveredAt     DateTime?
+  status          WebhookStatus @default(PENDING)
+  createdAt       DateTime      @default(now())
+
+  merchant Merchant @relation(fields: [merchantId], references: [id])
+
+  @@map("webhook_logs")
+}
