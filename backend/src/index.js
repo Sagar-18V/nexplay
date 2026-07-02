@@ -8,9 +8,8 @@ const cookieParser = require('cookie-parser');
 app.use(cookieParser());
 
 // health check
-app.get('/health', (req, res) => {
-    res.json({ status: 'ok', service: 'NexPay API', version: 'v1' });
-});
+app.get('/', (req, res) => res.json({ service: 'NexPay API', docs: '/api/health' }));
+
 
 // routes (we'll add more here each day)
 app.use('/v1/auth', require('./modules/auth/auth.routes'));

@@ -196,3 +196,96 @@ model WebhookLog {
 
   @@map("webhook_logs")
 }
+
+enum ReconRunStatus {
+  PENDING       // parent created, children queued
+  IN_PROGRESS   // at least one gateway job started
+  COMPLETED     // all gateway jobs succeeded
+  PARTIAL       // some succeeded, some exhausted retries
+  FAILED        // all gateway jobs failed
+}
+
+enum ReconJobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum DiscrepancyType {
+  MISSING_AT_GATEWAY   // in our DB, absent from settlement file
+  MISSING_IN_DB        // in settlement file, we have no record (orphan)
+  AMOUNT_MISMATCH      // both exist, paise amounts differ
+  STATUS_MISMATCH      // both exist, status disagrees (we say captured, they say failed)
+}
+
+enum DiscrepancyStatus {
+  OPEN
+  INVESTIGATING
+  RESOLVED
+  IGNORED              // known/accepted difference, e.g. timing cutoff
+}
+
+model ReconciliationRun {
+  id            String          @id @default(uuid())
+  runDate       DateTime        @db.Date          // the settlement date being reconciled
+  status        ReconRunStatus  @default(PENDING)
+  startedAt     DateTime        @default(now())
+  completedAt   DateTime?
+
+  gatewayJobs   ReconciliationGatewayJob[]
+
+  @@unique([runDate])                             // one run per settlement date
+  @@map("reconciliation_runs")
+}
+
+model ReconciliationGatewayJob {
+  id                String          @id @default(uuid())
+  runId             String
+  run               ReconciliationRun @relation(fields: [runId], references: [id])
+  gateway           Gateway                         // your existing enum
+  status            ReconJobStatus  @default(QUEUED)
+  attempts          Int             @default(0)
+
+  // summary numbers — the "reconciliation is a report" part
+  totalInDb         Int             @default(0)     // our payment count for window
+  totalInFile       Int             @default(0)     // gateway's reported count
+  matchedCount      Int             @default(0)
+  discrepancyCount  Int             @default(0)
+  expectedAmount    BigInt          @default(0)     // sum of our captured amounts, paise
+  reportedAmount    BigInt          @default(0)     // sum from settlement file, paise
+
+  errorMessage      String?                          // last failure reason if FAILED
+  startedAt         DateTime?
+  completedAt       DateTime?
+
+  discrepancies     ReconciliationDiscrepancy[]
+
+  @@unique([runId, gateway])                        // one job per gateway per run
+  @@map("reconciliation_gateway_jobs")
+}
+
+model ReconciliationDiscrepancy {
+  id              String            @id @default(uuid())
+  gatewayJobId    String
+  gatewayJob      ReconciliationGatewayJob @relation(fields: [gatewayJobId], references: [id])
+
+  type            DiscrepancyType
+  status          DiscrepancyStatus @default(OPEN)
+
+  paymentId       String?           // null for MISSING_IN_DB (we have no record)
+  gatewayTxnRef   String?           // gateway's transaction reference from the file
+
+  ourAmount       BigInt?           // paise; null if MISSING_IN_DB
+  gatewayAmount   BigInt?           // paise; null if MISSING_AT_GATEWAY
+  ourStatus       String?
+  gatewayStatus   String?
+
+  resolutionNote  String?
+  resolvedAt      DateTime?
+  createdAt       DateTime          @default(now())
+
+  @@index([status])
+  @@index([type])
+  @@map("reconciliation_discrepancies")
+}
