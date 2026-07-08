@@ -28,6 +28,8 @@ app.use((err, req, res, next) => {
     });
 });
 
+app.use('/v1/reconciliation', require('./modules/reconciliation/reconciliation.routes'));
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`NexPay running on port ${PORT}`);

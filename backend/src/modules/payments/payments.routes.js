@@ -9,6 +9,109 @@ const { writeCaptureEntries } = require('../ledger/ledger.service');
 const { emitWebhookEvent } = require('../webhooks/webhook.service');
 
 /**
+ * POST /v1/payments/intents
+ * Create a payment intent and route it to a gateway.
+ */
+router.post('/intents', authenticate, async (req, res, next) => {
+    try {
+        const { amount, method, currency = 'INR', metadata } = req.body;
+
+        if (!amount || !method) {
+            throw new AppError('amount and method are required', 400);
+        }
+        if (!Number.isInteger(amount) || amount <= 0) {
+            throw new AppError('amount must be a positive integer (paise)', 400);
+        }
+
+        const idempotencyKey = req.headers['idempotency-key'];
+        if (!idempotencyKey) {
+            throw new AppError('Idempotency-Key header is required', 400);
+        }
+
+        // Idempotency: return existing intent if key already used
+        const existing = await prisma.paymentIntent.findUnique({
+            where: { idempotencyKey },
+        });
+        if (existing) {
+            return res.status(200).json({ success: true, data: existing });
+        }
+
+        // Route to best gateway
+        const gateway = await routePayment({ method, amount });
+
+        const intent = await prisma.paymentIntent.create({
+            data: {
+                merchantId: req.merchant.id,
+                amount,
+                currency,
+                method,
+                idempotencyKey,
+                metadata: metadata ?? undefined,
+                transactions: {
+                    create: {
+                        gateway,
+                        amount,
+                        status: 'PENDING',
+                    },
+                },
+            },
+            include: { transactions: true },
+        });
+
+        res.status(201).json({ success: true, data: intent });
+    } catch (err) {
+        next(err);
+    }
+});
+
+/**
+ * GET /v1/payments/intents
+ * List payment intents for the authenticated merchant.
+ */
+router.get('/intents', authenticate, async (req, res, next) => {
+    try {
+        const { status, limit = 20, offset = 0 } = req.query;
+
+        const where = { merchantId: req.merchant.id };
+        if (status) where.status = status;
+
+        const [intents, total] = await Promise.all([
+            prisma.paymentIntent.findMany({
+                where,
+                orderBy: { createdAt: 'desc' },
+                take: Number(limit),
+                skip: Number(offset),
+                include: { transactions: { orderBy: { createdAt: 'desc' }, take: 1 } },
+            }),
+            prisma.paymentIntent.count({ where }),
+        ]);
+
+        res.json({ success: true, data: intents, meta: { total, limit: Number(limit), offset: Number(offset) } });
+    } catch (err) {
+        next(err);
+    }
+});
+
+/**
+ * GET /v1/payments/intents/:id
+ * Get a single payment intent with all transactions.
+ */
+router.get('/intents/:id', authenticate, async (req, res, next) => {
+    try {
+        const intent = await prisma.paymentIntent.findFirst({
+            where: { id: req.params.id, merchantId: req.merchant.id },
+            include: { transactions: { orderBy: { createdAt: 'asc' } } },
+        });
+
+        if (!intent) throw new AppError('Payment intent not found', 404);
+
+        res.json({ success: true, data: intent });
+    } catch (err) {
+        next(err);
+    }
+});
+
+/**
  * POST /v1/payments/intents/:id/process
  * Executes the intent's pending transaction through its assigned gateway.
  */

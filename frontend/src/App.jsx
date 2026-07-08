@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard'
 import Transactions from './pages/Transactions'
 import Routing from './pages/Routing'
 import Reconciliation from './pages/Reconciliation'
+import IntentDetail from './pages/IntentDetail'
 
 function PrivateRoute({ children, roles }) {
   const { merchant, loading } = useAuth()
@@ -35,13 +36,14 @@ export default function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/login"          element={<PublicRoute><Login /></PublicRoute>} />
-          <Route path="/register"       element={<PublicRoute><Register /></PublicRoute>} />
-          <Route path="/dashboard"      element={<PrivateRoute><Dashboard /></PrivateRoute>} />
-          <Route path="/transactions"   element={<PrivateRoute><Transactions /></PrivateRoute>} />
-          <Route path="/routing"        element={<PrivateRoute><Routing /></PrivateRoute>} />
+          <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+          <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
+          <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
+          <Route path="/transactions" element={<PrivateRoute><Transactions /></PrivateRoute>} />
+          <Route path="/transactions/:id" element={<PrivateRoute><IntentDetail /></PrivateRoute>} />
+          <Route path="/routing" element={<PrivateRoute><Routing /></PrivateRoute>} />
           <Route path="/reconciliation" element={<PrivateRoute><Reconciliation /></PrivateRoute>} />
-          <Route path="*"               element={<Navigate to="/dashboard" />} />
+          <Route path="*" element={<Navigate to="/dashboard" />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>
