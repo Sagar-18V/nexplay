@@ -13,6 +13,11 @@ app.get('/', (req, res) => res.json({ service: 'NexPay API', docs: '/api/health'
 
 // routes (we'll add more here each day)
 app.use('/v1/auth', require('./modules/auth/auth.routes'));
+app.use('/v1/payments', require('./modules/payments/payments.routes'));
+app.use('/v1/refunds', require('./modules/refunds/refund.routes'));
+
+// Start BullMQ workers (refund + reconciliation)
+require('./workers');
 
 // global error handler
 app.use((err, req, res, next) => {

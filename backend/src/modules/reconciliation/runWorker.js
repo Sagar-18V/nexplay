@@ -1,6 +1,6 @@
 const { Worker } = require('bullmq');
 const prisma = require('../../config/prisma');
-const connection = require('../../config/redis');
+const { bullmqConnection } = require('../../config/redis');
 const { RECON_RUN_QUEUE } = require('./queues/queues');
 
 const runWorker = new Worker(
@@ -30,7 +30,7 @@ const runWorker = new Worker(
         console.log(`[recon] Run ${runId} finalized: ${status} (${completed} ok, ${failed} failed)`);
         return { status, completed, failed };
     },
-    { connection }
+    { connection: bullmqConnection }
 );
 
 module.exports = { runWorker };

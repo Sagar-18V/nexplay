@@ -1,8 +1,8 @@
 const { Queue, Worker } = require('bullmq');
-const connection = require('../../config/redis');
+const { bullmqConnection } = require('../../config/redis');
 const { createReconciliationFlow } = require('./createReconciliationFlow');
 
-const schedulerQueue = new Queue('recon-scheduler', { connection });
+const schedulerQueue = new Queue('recon-scheduler', { connection: bullmqConnection });
 
 async function registerReconciliationSchedule() {
     await schedulerQueue.add(
@@ -23,7 +23,7 @@ const schedulerWorker = new Worker(
         yesterday.setUTCHours(0, 0, 0, 0);
         return createReconciliationFlow(yesterday);
     },
-    { connection }
+    { connection: bullmqConnection }
 );
 
 module.exports = { registerReconciliationSchedule, schedulerWorker };

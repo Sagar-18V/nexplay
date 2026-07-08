@@ -1,9 +1,9 @@
 const { Worker } = require('bullmq');
 const prisma = require('../../../config/prisma');
-const connection = require('../../../config/redis');
+const { bullmqConnection } = require('../../../config/redis');
 const { RECON_GATEWAY_QUEUE } = require('./queues');
-const { generateSettlementFile } = require('../../services/settlement/settlementFileGenerator');
-const { reconcile } = require('../../services/reconciliation/reconciliationEngine');
+const { generateSettlementFile } = require('../../settlements/settlementFileGenerator');
+const { reconcile } = require('../reconciliationEngine');
 
 const gatewayWorker = new Worker(
     RECON_GATEWAY_QUEUE,
@@ -18,12 +18,12 @@ const gatewayWorker = new Worker(
             data: { status: 'RUNNING', startedAt: new Date(), attempts: job.attemptsMade + 1 },
         });
 
-        // 1. Our side
-        const payments = await prisma.payment.findMany({
+        // 1. Our side — transactions (not `payment`) is the correct model name
+        const payments = await prisma.transaction.findMany({
             where: {
                 gateway,
-                status: { in: ['CAPTURED', 'FAILED', 'REFUNDED'] },
-                updatedAt: { gte: dayStart, lt: dayEnd },
+                status: { in: ['SUCCESS', 'FAILED'] },
+                createdAt: { gte: dayStart, lt: dayEnd },
             },
             select: { id: true, amount: true, status: true },
         });
@@ -61,7 +61,7 @@ const gatewayWorker = new Worker(
 
         return { gateway, ...summaryToLog(summary) };
     },
-    { connection, concurrency: 4 }   // all 4 gateways in parallel
+    { connection: bullmqConnection, concurrency: 4 }   // all 4 gateways in parallel
 );
 
 function summaryToLog(s) {
