@@ -1,8 +1,8 @@
 const { reconcile } = require('../reconciliationEngine');
 
 const payments = [
-    { id: 'p1', amount: 10000n, status: 'CAPTURED' },   // will match
-    { id: 'p2', amount: 25000n, status: 'CAPTURED' },   // amount mismatch
+    { id: 'p1', amount: 10000n, status: 'SUCCESS' },   // will match
+    { id: 'p2', amount: 25000n, status: 'SUCCESS' },   // amount mismatch
     { id: 'p3', amount: 5000n, status: 'FAILED' },     // missing at gateway
 ];
 

@@ -8,6 +8,7 @@
  */
 
 const { refundWorker } = require('./modules/refunds/refund.worker');
+const { webhookWorker } = require('./modules/webhooks/webhook.worker');
 
 // Reconciliation workers (gateway + run finalizer)
 const { gatewayWorker } = require('./modules/reconciliation/queues/gatewayWorker');
@@ -25,8 +26,8 @@ function logWorkerEvents(worker) {
     });
 }
 
-[refundWorker, gatewayWorker, runWorker].forEach(logWorkerEvents);
+[refundWorker, webhookWorker, gatewayWorker, runWorker].forEach(logWorkerEvents);
 
-console.log('[workers] refund, recon-gateway, recon-run workers started');
+console.log('[workers] refund, webhook, recon-gateway, recon-run workers started');
 
-module.exports = { refundWorker, gatewayWorker, runWorker };
+module.exports = { refundWorker, webhookWorker, gatewayWorker, runWorker };

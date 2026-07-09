@@ -7,12 +7,47 @@ const { routePayment } = require('../routing/routing.service');
 const { getGatewayAdapter } = require('../gateways');
 const { writeCaptureEntries } = require('../ledger/ledger.service');
 const { emitWebhookEvent } = require('../webhooks/webhook.service');
+const { rateLimit } = require('../../middleware/rateLimiter');
 
+const FALLBACK_ORDER_BASE = ['RAZORX', 'STRIPEIN', 'PAYFLOW', 'SWIFTPAY'];
+
+async function attemptWithFallback({ intent, firstGateway }) {
+    const tried = [];
+    let gateway = firstGateway;
+    let lastTxn = null;
+    let lastResult = null;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+        tried.push(gateway);
+
+        const txn = attempt === 0
+            ? await prisma.transaction.findFirst({ where: { intentId: intent.id, status: 'PENDING' } })
+            : await prisma.transaction.create({ data: { intentId: intent.id, gateway, amount: intent.amount } });
+
+        const adapter = getGatewayAdapter(gateway);
+        const result = await adapter.processPayment({ amount: intent.amount, method: intent.method, intentId: intent.id });
+
+        lastTxn = txn; lastResult = result;
+        if (result.success) return { txn, result, tried };
+
+        await prisma.transaction.update({
+            where: { id: txn.id },
+            data: { status: 'FAILED', latencyMs: result.latencyMs, failureReason: result.error },
+        });
+
+        // pick next untried gateway by weighted preference, excluding ones already tried
+        const remaining = FALLBACK_ORDER_BASE.filter((g) => !tried.includes(g));
+        if (remaining.length === 0) break;
+        gateway = routePayment({ method: intent.method, amount: intent.amount, exclude: tried })
+            ?? remaining[0];
+    }
+    return { txn: lastTxn, result: lastResult, tried, exhausted: true };
+}
 /**
  * POST /v1/payments/intents
  * Create a payment intent and route it to a gateway.
  */
-router.post('/intents', authenticate, async (req, res, next) => {
+router.post('/intents', authenticate, rateLimit('write'), async (req, res, next) => {
     try {
         const { amount, method, currency = 'INR', metadata } = req.body;
 
@@ -68,7 +103,7 @@ router.post('/intents', authenticate, async (req, res, next) => {
  * GET /v1/payments/intents
  * List payment intents for the authenticated merchant.
  */
-router.get('/intents', authenticate, async (req, res, next) => {
+router.get('/intents', authenticate, rateLimit('read'), async (req, res, next) => {
     try {
         const { status, limit = 20, offset = 0 } = req.query;
 
@@ -115,7 +150,7 @@ router.get('/intents/:id', authenticate, async (req, res, next) => {
  * POST /v1/payments/intents/:id/process
  * Executes the intent's pending transaction through its assigned gateway.
  */
-router.post('/intents/:id/process', authenticate, async (req, res, next) => {
+router.post('/intents/:id/process', authenticate, rateLimit('write'), async (req, res, next) => {
     try {
         const intent = await prisma.paymentIntent.findUnique({ where: { id: req.params.id } });
         if (!intent || intent.merchantId !== req.merchant.id) {
@@ -125,25 +160,24 @@ router.post('/intents/:id/process', authenticate, async (req, res, next) => {
             return res.status(422).json({ success: false, message: `Intent is ${intent.status}, cannot process` });
         }
 
-        // 1. Reuse the PENDING transaction created at intent time (routing already ran)
-        const txn = await prisma.transaction.findFirst({
+        // 1. Reuse the PENDING transaction created at intent time (routing already picked a first gateway)
+        const pendingTxn = await prisma.transaction.findFirst({
             where: { intentId: intent.id, status: 'PENDING' },
         });
-        if (!txn) {
+        if (!pendingTxn) {
             return res.status(422).json({ success: false, message: 'No pending transaction on this intent' });
         }
-        const gateway = txn.gateway;
 
         await prisma.paymentIntent.update({
             where: { id: intent.id },
             data: { status: 'PROCESSING' },
         });
 
-        // 2. Gateway call — outside any DB transaction (never hold locks across network I/O)
-        const adapter = getGatewayAdapter(gateway);
-        const result = await adapter.processPayment({
-            amount: intent.amount, method: intent.method, intentId: intent.id,
+        // 2. Fallback loop — tries up to 3 gateways, outside any DB transaction
+        const { txn, result, tried, exhausted } = await attemptWithFallback({
+            intent, firstGateway: pendingTxn.gateway,
         });
+        const gateway = txn.gateway;
 
         // 3. Persist outcome atomically
         if (result.success) {
@@ -175,10 +209,10 @@ router.post('/intents/:id/process', authenticate, async (req, res, next) => {
                 });
             });
 
-            // 4a. Announce AFTER commit
             await emitWebhookEvent(intent.merchantId, 'payment.success', {
                 intent_id: intent.id, transaction_id: txn.id,
                 amount: intent.amount, gateway, method: intent.method,
+                fallback_chain: tried,   // visibility into which gateways were tried
             });
         } else {
             await prisma.$transaction(async (tx) => {
@@ -197,15 +231,18 @@ router.post('/intents/:id/process', authenticate, async (req, res, next) => {
                 });
             });
 
-            // 4b. Failures are announcements too
             await emitWebhookEvent(intent.merchantId, 'payment.failed', {
                 intent_id: intent.id, transaction_id: txn.id,
                 amount: intent.amount, gateway, reason: result.error,
+                fallback_chain: tried, exhausted,
             });
         }
 
-        const finalTxn = await prisma.transaction.findUnique({ where: { id: txn.id } });
-        res.json({ success: true, data: { gateway, transaction: finalTxn } });
+        const allTxns = await prisma.transaction.findMany({
+            where: { intentId: intent.id },
+            orderBy: { createdAt: 'asc' },
+        });
+        res.json({ success: true, data: { gateway, tried, transactions: allTxns } });
     } catch (err) { next(err); }
 });
 

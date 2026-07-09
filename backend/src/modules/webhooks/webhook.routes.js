@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../../config/prisma');
 const { webhookQueue } = require('./webhook.queue');
-const { authenticate } = require('../auth/auth.middleware'); // match your import style
+const authenticate = require('../../middleware/authenticate');
 
 router.get('/failed', authenticate, async (req, res, next) => {
     try {

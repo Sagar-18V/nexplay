@@ -1,6 +1,6 @@
 const { Worker } = require('bullmq');
 const crypto = require('crypto');
-const connection = require('../../config/redis');
+const { bullmqConnection } = require('../../config/redis');
 const prisma = require('../../config/prisma');
 
 const webhookWorker = new Worker('webhooks', async (job) => {
@@ -53,7 +53,7 @@ const webhookWorker = new Worker('webhooks', async (job) => {
         where: { id: webhookLogId },
         data: { status: 'DELIVERED', deliveredAt: new Date() },
     });
-}, { connection, concurrency: 10 });
+}, { connection: bullmqConnection, concurrency: 10 });
 
 // Retries exhausted -> dead letter
 webhookWorker.on('failed', async (job, err) => {

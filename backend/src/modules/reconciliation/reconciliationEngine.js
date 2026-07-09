@@ -9,7 +9,7 @@
 
 // Normalize gateway dialect -> our vocabulary (inverse of generator's STATUS_MAP)
 const GATEWAY_STATUS_MAP = {
-    settled: 'CAPTURED',
+    settled: 'SUCCESS',
     failure: 'FAILED',
     reversed: 'REFUNDED',
 };
@@ -106,7 +106,7 @@ function reconcile(payments, settlementFile) {
 
     // Summary — the "reconciliation is a report, not a boolean" payload
     const expectedAmount = payments
-        .filter((p) => p.status === 'CAPTURED')
+        .filter((p) => p.status === 'SUCCESS')
         .reduce((sum, p) => sum + BigInt(p.amount), 0n);
 
     const summary = {

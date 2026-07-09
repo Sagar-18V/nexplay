@@ -1,3 +1,3 @@
 const { Queue } = require('bullmq');
-const connection = require('../../config/redis');
-module.exports = { webhookQueue: new Queue('webhooks', { connection }) };
+const { bullmqConnection } = require('../../config/redis');
+module.exports = { webhookQueue: new Queue('webhooks', { connection: bullmqConnection }) };

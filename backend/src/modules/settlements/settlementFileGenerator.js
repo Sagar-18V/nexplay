@@ -14,11 +14,7 @@ const GATEWAY_PROFILES = {
 
 // Gateway's view of status — deliberately different vocab than ours,
 // so the recon engine must normalize (real gateways never share your enum)
-const STATUS_MAP = {
-    CAPTURED: 'settled',
-    FAILED: 'failure',
-    REFUNDED: 'reversed',
-};
+const STATUS_MAP = { SUCCESS: 'settled', FAILED: 'failure' };
 
 /**
  * Deterministic PRNG (mulberry32) seeded from gateway+date.
@@ -52,11 +48,11 @@ async function generateSettlementFile(gateway, runDate) {
     dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
 
     // Our side of the truth: terminal-state payments routed to this gateway
-    const payments = await prisma.payment.findMany({
+    const payments = await prisma.transaction.findMany({
         where: {
             gateway,
-            status: { in: ['CAPTURED', 'FAILED', 'REFUNDED'] },
-            updatedAt: { gte: dayStart, lt: dayEnd },
+            status: { in: ['SUCCESS', 'FAILED'] },
+            createdAt: { gte: dayStart, lt: dayEnd },
         },
         orderBy: { createdAt: 'asc' },
     });
