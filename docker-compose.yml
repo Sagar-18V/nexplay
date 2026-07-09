@@ -2,22 +2,49 @@ version: '3.8'
 
 services:
   postgres:
-    image: postgres:15
-    container_name: nexplay_postgres
+    image: postgres:16-alpine
     environment:
-      POSTGRES_USER: nexplay
-      POSTGRES_PASSWORD: nexplay_secret
-      POSTGRES_DB: nexplay_db
+      POSTGRES_USER: nexpay
+      POSTGRES_PASSWORD: nexpay_dev
+      POSTGRES_DB: nexpay
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexpay"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
-    container_name: nexplay_redis
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://nexpay:nexpay_dev@postgres:5432/nexpay
+      REDIS_URL: redis://redis:6379
+      PORT: 3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
-  postgres_data:
+  pgdata:
