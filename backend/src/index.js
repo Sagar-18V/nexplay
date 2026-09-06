@@ -18,6 +18,12 @@ app.use(requestLogger);   // before express.json(), so it wraps the whole reques
 // health check
 app.get('/', (req, res) => res.json({ service: 'NexPay API', docs: '/api/health' }));
 
+const cors = require('cors');
+app.use(cors({
+  origin: process.env.FRONTEND_URL,
+  credentials: true,
+}));
+
 // routes (we'll add more here each day)
 app.use('/v1/auth', require('./modules/auth/auth.routes'));
 app.use('/v1/payments', require('./modules/payments/payments.routes'));
