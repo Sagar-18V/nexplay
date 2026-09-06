@@ -13,6 +13,8 @@ async function login() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
     });
+    console.log(res, "login data2ß")
+
     return (await res.json()).data.accessToken;
 }
 

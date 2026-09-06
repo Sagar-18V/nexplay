@@ -23,6 +23,7 @@ export function AuthProvider({ children }) {
     const res = await api.post('/auth/login', { email, password })
     localStorage.setItem('accessToken', res.data.data.accessToken)
     setMerchant(res.data.data.merchant)
+    console.log(res, "login data")
     return res.data.data
   }
 
