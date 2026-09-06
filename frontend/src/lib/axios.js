@@ -1,8 +1,8 @@
 import axios from 'axios'
 
 const api = axios.create({
-  baseURL: '/v1',
-  withCredentials: true, // sends httpOnly cookie automatically
+  baseURL: import.meta.env.VITE_API_URL || '/v1',
+  withCredentials: true,
 })
 
 // attach access token to every request
