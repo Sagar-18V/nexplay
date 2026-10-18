@@ -188,3 +188,17 @@ def reset_and_seed(db_url: str, redis_url: str) -> None:
 if __name__ == "__main__":
     reset_and_seed(os.environ["CONTRACT_DATABASE_URL"], os.environ["CONTRACT_REDIS_URL"])
     print("seeded")
+
+
+def reset_gateway_stats(db_url: str) -> None:
+    """
+    Restore only the seeded gateway_stats rows. Processing payments (write and interop
+    tests) legitimately bumps these counters, and the /metrics golden pins the seed values,
+    so the metrics contract re-seeds them first instead of depending on test order.
+    """
+    _guard(db_url)
+    engine = create_engine(db_url.replace("postgresql://", "postgresql+psycopg://", 1))
+    with Session(engine) as s, s.begin():
+        s.execute(text("DELETE FROM gateway_stats"))
+        s.add_all([r for r in build() if isinstance(r, GatewayStat)])
+    engine.dispose()

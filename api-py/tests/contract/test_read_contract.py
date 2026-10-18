@@ -158,6 +158,11 @@ def test_webhook_redeliver_already_delivered(api, tokens):
 
 # ---------------- metrics ----------------
 def test_metrics(api):
+    import os
+
+    from tests.contract.seed import reset_gateway_stats
+    reset_gateway_stats(os.environ["CONTRACT_DATABASE_URL"])  # independent of test order
+
     def _stable(body):
         body["data"]["timestamp"] = "<now>"
         # Queue counts move as workers run; the KEYS are the contract.

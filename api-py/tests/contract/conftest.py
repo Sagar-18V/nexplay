@@ -48,11 +48,42 @@ def seeded():
     reset_and_seed(os.environ["CONTRACT_DATABASE_URL"], os.environ["CONTRACT_REDIS_URL"])
 
 
+def pinned_backend(request) -> dict:
+    """
+    During the Step 5 canary, nginx splits payment writes between Express and FastAPI.
+    Tests that assert behaviour only one side has pin themselves with X-NexPay-Backend
+    (honoured by the gateway, ignored by the services). CONTRACT_PIN_BACKEND pins all.
+    """
+    pin = os.getenv("CONTRACT_PIN_BACKEND")
+    if os.getenv("CONTRACT_TARGET") == "express":
+        pin = "node"
+    elif request.node.get_closest_marker("fixed_in_fastapi"):
+        pin = "py"
+    return {"X-NexPay-Backend": pin} if pin else {}
+
+
 @pytest.fixture
-def api():
+def pin(request) -> dict:
+    return pinned_backend(request)
+
+
+@pytest.fixture
+def api(request):
     # A fresh client per test so cookies never leak between contracts.
-    with httpx.Client(base_url=BASE_URL, timeout=10) as c:
+    with httpx.Client(base_url=BASE_URL, timeout=30, headers=pinned_backend(request)) as c:
         yield c
+
+
+@pytest.fixture
+def reset_rate_limits():
+    """Write tier is 30/min per merchant; concurrency tests need a clean budget."""
+    import redis as redis_lib
+
+    def _reset():
+        r = redis_lib.Redis.from_url(os.environ["CONTRACT_REDIS_URL"])
+        for key in r.scan_iter("ratelimit:*"):
+            r.delete(key)
+    return _reset
 
 
 def login(client: httpx.Client, email: str) -> str:

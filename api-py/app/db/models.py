@@ -187,6 +187,8 @@ class WebhookLog(Base):
     )
     created_at: Mapped[datetime] = created_at()
 
+    merchant: Mapped["Merchant"] = relationship()
+
 
 class ReconciliationRun(Base):
     __tablename__ = "reconciliation_runs"

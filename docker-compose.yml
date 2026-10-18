@@ -78,5 +78,18 @@ services:
       timeout: 5s
       retries: 5
 
+  # Celery worker: replaces the BullMQ webhook worker for events emitted by FastAPI.
+  # Express's BullMQ worker keeps draining its own queue until Step 6 moves redeliver.
+  worker:
+    build: ./api-py
+    command: ["celery", "-A", "app.worker.celery_app", "worker", "-Q", "webhooks", "-c", "10", "-l", "INFO"]
+    env_file: ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://nexpay:nexpay_dev@postgres:5432/nexpay
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      api-py:
+        condition: service_healthy
+
 volumes:
   pgdata:

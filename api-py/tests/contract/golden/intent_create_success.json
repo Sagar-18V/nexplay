@@ -1,0 +1,39 @@
+{
+  "body": {
+    "data": {
+      "amount": 49900,
+      "createdAt": "<ts>",
+      "currency": "INR",
+      "id": "<uuid>",
+      "idempotencyKey": "<key>",
+      "merchantId": "00000000-0000-4000-8000-000000000002",
+      "metadata": {
+        "orderId": "O-1"
+      },
+      "method": "UPI",
+      "status": "CREATED",
+      "transactions": [
+        {
+          "amount": 49900,
+          "createdAt": "<ts>",
+          "failureReason": null,
+          "feeAmount": null,
+          "gateway": "<gateway>",
+          "gatewayTxnId": null,
+          "id": "<uuid>",
+          "intentId": "<uuid>",
+          "latencyMs": null,
+          "refundedAmount": 0,
+          "status": "PENDING"
+        }
+      ],
+      "updatedAt": "<ts>"
+    },
+    "success": true
+  },
+  "headers": {
+    "content-type": "application/json",
+    "x-ratelimit-limit": "30"
+  },
+  "status": 201
+}

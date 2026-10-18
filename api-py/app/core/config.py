@@ -43,3 +43,15 @@ def to_async_dsn(url: str) -> tuple[str, dict]:
     if sslmode in {"require", "verify-ca", "verify-full"}:
         connect_args["ssl"] = True
     return dsn, connect_args
+
+
+def to_sync_dsn(url: str) -> str:
+    """
+    DSN for the synchronous psycopg driver used by Celery workers (Celery tasks are
+    sync). Unlike asyncpg, psycopg understands sslmode/channel_binding natively, so
+    only Prisma's `schema` param needs stripping.
+    """
+    parts = urlsplit(url)
+    query = dict(parse_qsl(parts.query))
+    query.pop("schema", None)
+    return urlunsplit(("postgresql+psycopg", parts.netloc, parts.path, urlencode(query), ""))
