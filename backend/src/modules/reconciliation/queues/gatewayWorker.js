@@ -1,4 +1,5 @@
 const { Worker } = require('bullmq');
+const { safeHandler } = require('../../../utils/safeHandler');
 const prisma = require('../../../config/prisma');
 const { bullmqConnection } = require('../../../config/redis');
 const { RECON_GATEWAY_QUEUE } = require('./queues');
@@ -69,13 +70,13 @@ function summaryToLog(s) {
 }
 
 // Terminal failure (retries exhausted) -> mark FAILED in DB
-gatewayWorker.on('failed', async (job, err) => {
+gatewayWorker.on('failed', safeHandler('recon-gateway:failed', async (job, err) => {
     if (job && job.attemptsMade >= job.opts.attempts) {
         await prisma.reconciliationGatewayJob.update({
             where: { id: job.data.gatewayJobId },
             data: { status: 'FAILED', errorMessage: err.message, completedAt: new Date() },
         });
     }
-});
+}));
 
 module.exports = { gatewayWorker };

@@ -1,4 +1,5 @@
 const { Worker } = require('bullmq');
+const { safeHandler } = require('../../utils/safeHandler');
 const { bullmqConnection } = require('../../config/redis');
 const prisma = require('../../config/prisma');
 const { getGatewayAdapter } = require('../gateways'); // your adapter registry
@@ -91,13 +92,13 @@ const refundWorker = new Worker('refunds', async (job) => {
     });
 }, { connection: bullmqConnection, concurrency: 5 });
 
-refundWorker.on('failed', async (job, err) => {
+refundWorker.on('failed', safeHandler('refunds:failed', async (job, err) => {
     if (job && job.attemptsMade >= job.opts.attempts) {
         await prisma.refund.update({
             where: { id: job.data.refundId },
             data: { status: 'FAILED', failureReason: err.message, processedAt: new Date() },
         });
     }
-});
+}));
 
 module.exports = { refundWorker };

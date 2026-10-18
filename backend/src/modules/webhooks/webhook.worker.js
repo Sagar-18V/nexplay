@@ -1,4 +1,5 @@
 const { Worker } = require('bullmq');
+const { safeHandler } = require('../../utils/safeHandler');
 const crypto = require('crypto');
 const { bullmqConnection } = require('../../config/redis');
 const prisma = require('../../config/prisma');
@@ -56,13 +57,13 @@ const webhookWorker = new Worker('webhooks', async (job) => {
 }, { connection: bullmqConnection, concurrency: 10 });
 
 // Retries exhausted -> dead letter
-webhookWorker.on('failed', async (job, err) => {
+webhookWorker.on('failed', safeHandler('webhooks:failed', async (job, err) => {
     if (job && job.attemptsMade >= job.opts.attempts) {
         await prisma.webhookLog.update({
             where: { id: job.data.webhookLogId },
             data: { status: 'FAILED' },
         });
     }
-});
+}));
 
 module.exports = { webhookWorker };
