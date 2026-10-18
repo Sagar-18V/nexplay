@@ -2,7 +2,10 @@
 const crypto = require('crypto');
 
 function requestLogger(req, res, next) {
-    req.requestId = crypto.randomUUID();
+    // Reuse the gateway's id (nginx sets X-Request-Id) so a request is traceable
+    // across gateway, Express and FastAPI logs. Fall back for direct calls.
+    req.requestId = req.get('x-request-id') || crypto.randomUUID();
+    res.set('X-Request-Id', req.requestId);
     const start = Date.now();
 
     res.on('finish', () => {

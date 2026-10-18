@@ -8,11 +8,11 @@ BigInt.prototype.toJSON = function () {
 };
 
 const requestLogger = require('./middleware/requestLogger');
+app.use(requestLogger);   // before express.json(), so it wraps the whole request lifecycle
 app.use(express.json());
 
 const cookieParser = require('cookie-parser');
 app.use(cookieParser());
-app.use(requestLogger);   // before express.json(), so it wraps the whole request lifecycle
 
 
 // health check
@@ -39,7 +39,7 @@ require('./workers');
 app.use((err, req, res, next) => {
     console.error(JSON.stringify({
         level: 'error',
-        requestId: req.id,
+        requestId: req.requestId,
         message: err.message,
         stack: err.stack,
         path: req.originalUrl,
@@ -48,7 +48,7 @@ app.use((err, req, res, next) => {
     res.status(err.status || 500).json({
         success: false,
         message: err.message || 'Internal server error',
-        requestId: req.id,   // lets the merchant quote this back to you for support
+        requestId: req.requestId,   // lets the merchant quote this back to you for support
     });
 });
 
