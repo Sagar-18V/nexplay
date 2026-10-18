@@ -26,10 +26,15 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
         request.state.request_id = request_id
         request.state.merchant = None
+        # Headers set early by dependencies (e.g. X-RateLimit-*) must reach the client
+        # even when the handler later raises: Express sets them before the handler runs.
+        request.state.response_headers = {}
         start = time.perf_counter()
 
         response = await call_next(request)
 
+        for name, value in request.state.response_headers.items():
+            response.headers[name] = value
         response.headers["X-Request-Id"] = request_id
         merchant = getattr(request.state, "merchant", None)
         log_json({

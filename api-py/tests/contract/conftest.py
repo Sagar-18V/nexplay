@@ -18,13 +18,27 @@ from tests.contract.seed import PASSWORD, reset_and_seed
 BASE_URL = os.getenv("CONTRACT_BASE_URL")
 
 
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "fixed_in_fastapi(finding): golden encodes an INTENTIONAL fix (MIGRATION.md finding). "
+        "Run against legacy Express with CONTRACT_TARGET=express and it must fail (strict xfail).",
+    )
+
+
 def pytest_collection_modifyitems(config, items):
-    if BASE_URL:
+    if not BASE_URL:
+        skip = pytest.mark.skip(reason="CONTRACT_BASE_URL not set")
+        for item in items:
+            if "tests/contract" in str(item.fspath):
+                item.add_marker(skip)
         return
-    skip = pytest.mark.skip(reason="CONTRACT_BASE_URL not set")
-    for item in items:
-        if "tests/contract" in str(item.fspath):
-            item.add_marker(skip)
+    if os.getenv("CONTRACT_TARGET") == "express":
+        for item in items:
+            marker = item.get_closest_marker("fixed_in_fastapi")
+            if marker:
+                item.add_marker(pytest.mark.xfail(
+                    strict=True, reason=f"{marker.args[0]}: defect still present in Express (expected)"))
 
 
 @pytest.fixture(scope="session", autouse=True)

@@ -23,6 +23,9 @@ READS = [
     "/v1/payments/intents",
     "/v1/payments/intents?status=FAILED",
     "/v1/payments/intents?limit=1&offset=1",
+    "/v1/payments/intents?limit=0",
+    "/v1/payments/intents?limit=%200x2%20",
+    "/v1/refunds?status=SUCCEEDED",
     f"/v1/payments/intents/{sid(11)}",
     f"/v1/payments/intents/{sid(14)}",          # cross-tenant -> must be 404 on both
     "/v1/refunds",

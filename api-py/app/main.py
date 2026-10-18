@@ -8,7 +8,7 @@ from app.core.db import dispose_engine, init_engine
 from app.core.errors import register_error_handlers
 from app.core.observability import RequestContextMiddleware
 from app.core.redis import close_redis, init_redis
-from app.routers import auth, health
+from app.routers import auth, health, metrics, payments, reconciliation, refunds, webhooks
 
 
 @asynccontextmanager
@@ -37,6 +37,8 @@ def create_app() -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(auth.router)
+    for r in (payments, refunds, reconciliation, webhooks, metrics):  # Step 4: reads
+        app.include_router(r.router)
     return app
 
 

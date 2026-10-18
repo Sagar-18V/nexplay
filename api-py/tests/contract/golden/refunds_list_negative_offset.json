@@ -1,0 +1,11 @@
+{
+  "body": {
+    "message": "offset must be a non-negative integer",
+    "requestId": "<requestId>",
+    "success": false
+  },
+  "headers": {
+    "content-type": "application/json"
+  },
+  "status": 400
+}

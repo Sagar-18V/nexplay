@@ -2,6 +2,8 @@
 Read-endpoint contracts — the routes Step 4 moves to FastAPI.
 Also includes write-route VALIDATION/guard paths, which have no side effects.
 """
+import pytest
+
 from tests.contract.conftest import bearer
 from tests.contract.harness import assert_contract
 from tests.contract.seed import sid
@@ -22,18 +24,33 @@ def test_intents_list_pagination(api, tokens):
     assert_contract("intents_list_page2", r)
 
 
+@pytest.mark.fixed_in_fastapi("D1")
 def test_intents_list_non_numeric_limit(api, tokens):
-    # KNOWN DEFECT (Express): limit=abc -> Number('abc') = NaN -> Prisma throws -> 500, and the
-    # raw Prisma error (source path, code excerpt, merchantId) is echoed to the client.
-    # Recorded so the defect is visible; Step 4 fixes it in FastAPI (400) and re-records this
-    # golden ON PURPOSE. The message is pinned because it embeds machine-specific paths.
-    def _pin_internal(body):
-        if body.get("message", "").lstrip().startswith("Invalid `prisma."):
-            body["message"] = "<raw prisma error leaked>"
-        return body
-
+    # D1: Express -> Number('abc') = NaN -> Prisma throws -> 500 echoing Prisma internals
+    # (source path, query, merchantId). Golden = the FIXED contract: 400, normal envelope,
+    # rate-limit headers still present. Hand-written on purpose; see MIGRATION.md D1.
     r = api.get("/v1/payments/intents", params={"limit": "abc"}, headers=bearer(tokens["alpha"]))
-    assert_contract("intents_list_bad_limit", r, _pin_internal)
+    assert_contract("intents_list_bad_limit", r)
+
+
+@pytest.mark.fixed_in_fastapi("D1")
+def test_intents_list_unknown_status(api, tokens):
+    r = api.get("/v1/payments/intents", params={"status": "BOGUS"}, headers=bearer(tokens["alpha"]))
+    assert_contract("intents_list_bad_status", r)
+
+
+@pytest.mark.fixed_in_fastapi("D1")
+def test_refunds_list_negative_offset(api, tokens):
+    r = api.get("/v1/refunds", params={"offset": "-1"}, headers=bearer(tokens["alpha"]))
+    assert_contract("refunds_list_negative_offset", r)
+
+
+def test_intents_list_js_number_edge_cases_still_work(api, tokens):
+    # Valid-but-odd input Express accepts must keep working: Number(' 0x2 ') == 2, Number('') == 0.
+    r = api.get("/v1/payments/intents", params={"limit": " 0x2 "}, headers=bearer(tokens["alpha"]))
+    assert r.status_code == 200 and len(r.json()["data"]) == 2 and r.json()["meta"]["limit"] == 2
+    r = api.get("/v1/payments/intents", params={"limit": ""}, headers=bearer(tokens["alpha"]))
+    assert r.status_code == 200 and r.json()["data"] == [] and r.json()["meta"]["limit"] == 0
 
 
 def test_intent_detail(api, tokens):
