@@ -68,6 +68,10 @@ router.post('/intents', authenticate, rateLimit('write'), async (req, res, next)
             where: { idempotencyKey },
         });
         if (existing) {
+            // Keys are globally unique: never hand another merchant's intent back (D14).
+            if (existing.merchantId !== req.merchant.id) {
+                throw new AppError('Idempotency-Key is already in use; use a unique key per request', 409);
+            }
             return res.status(200).json({ success: true, data: existing });
         }
 
@@ -168,10 +172,16 @@ router.post('/intents/:id/process', authenticate, rateLimit('write'), async (req
             return res.status(422).json({ success: false, message: 'No pending transaction on this intent' });
         }
 
-        await prisma.paymentIntent.update({
-            where: { id: intent.id },
+        // Atomic claim (D13): only one concurrent caller can flip CREATED -> PROCESSING.
+        // The status check above is a read; without this, N parallel calls charged N times.
+        const claimed = await prisma.paymentIntent.updateMany({
+            where: { id: intent.id, status: 'CREATED' },
             data: { status: 'PROCESSING' },
         });
+        if (claimed.count === 0) {
+            const current = await prisma.paymentIntent.findUnique({ where: { id: intent.id } });
+            return res.status(422).json({ success: false, message: `Intent is ${current.status}, cannot process` });
+        }
 
         // 2. Fallback loop — tries up to 3 gateways, outside any DB transaction
         const { txn, result, tried, exhausted } = await attemptWithFallback({
