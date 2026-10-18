@@ -35,6 +35,12 @@ def _body(request: Request, message: str) -> dict:
 
 
 def register_error_handlers(app: FastAPI) -> None:
+    from app.core.http import RawError, raw_error_response  # http.py imports AppError
+
+    @app.exception_handler(RawError)
+    async def raw_error(_: Request, exc: RawError):
+        return raw_error_response(exc)
+
     @app.exception_handler(AppError)
     async def app_error(request: Request, exc: AppError):
         return JSONResponse(_body(request, exc.message), status_code=exc.status)

@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     jwt_secret: str = ""          # needed from Step 3 (auth) onwards
     jwt_refresh_secret: str = ""
     frontend_url: str | None = None
+    node_env: str = "development"  # same var Express reads; "production" adds Secure to cookies
     service_name: str = "nexpay-api-py"
 
 

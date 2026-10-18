@@ -25,8 +25,8 @@ React (Vite)  ──/v1──▶  nginx :8080  ──┬──▶  FastAPI :8000
 |---|---|---|---|
 | `GET /v1/health` | **FastAPI** ✅ | 1 | New route; Express never had it |
 | `GET /v1/metrics` | Express | 4 | read-only; **unauthenticated** today (see D3) |
-| `GET /v1/auth/me`, `GET /v1/auth/merchants` | Express | 3 | read-only auth |
-| `POST /v1/auth/register·login·refresh·logout` | Express | 3 | bcrypt + Redis refresh-token compat |
+| `GET /v1/auth/me`, `GET /v1/auth/merchants` | **FastAPI** ✅ | 3 | `authenticate` / `require_role` dependencies |
+| `POST /v1/auth/register·login·refresh·logout` | **FastAPI** ✅ | 3 | tokens, refresh keys and hashes interchangeable with Express |
 | `GET /v1/payments/intents`, `GET /v1/payments/intents/:id` | Express | 4 | offset pagination (`limit`/`offset`); see D1 |
 | `POST /v1/payments/intents` | Express | 5 | idempotency, rate limit (write) |
 | `POST /v1/payments/intents/:id/process` | Express | 5 | routing scorer, gateways, ledger |
@@ -41,7 +41,8 @@ React (Vite)  ──/v1──▶  nginx :8080  ──┬──▶  FastAPI :8000
 ## Steps
 - [x] **1. Facade + skeleton.** nginx gateway, FastAPI service on the shared DB/Redis, request-id propagation, Express-compatible errors and logs, `/v1/health`.
 - [x] **2. Foundations + contract tests.** SQLAlchemy models for all 12 Prisma tables, a Prisma-compatible JSON serializer, a schema drift test, a deterministic seed, 44 contract tests (49 goldens) recorded against Express, and a shadow-diff tool.
-- [ ] **3. Auth.** JWT verification first (read-only routes), then login/register/refresh/logout with refresh-token rotation kept intact (no reuse detection exists today; see D2).
+- [x] **3. Auth.** All six `/v1/auth/*` routes on FastAPI with identical contracts (18 goldens), plus 8 mixed-fleet interop tests: access tokens, refresh tokens, password hashes and logout work across Express ⇄ FastAPI in both directions, so rollback never logs anyone out.
+- [ ] **3b. Auth hardening** (deliberate behaviour changes, after the parity cutover): refresh-token family revocation on reuse (D2), login/register rate limit keyed on the real client IP (D4, D9).
 - [ ] **4. Read endpoints.** Shadow traffic → diff → cut over, one at a time.
 - [ ] **5. Payment writes.** Idempotency, Lua rate limiter, gateway scorer, double-entry ledger. Canary per merchant before 100%.
 - [ ] **6. Queues.** Move producers and workers for each queue BullMQ → arq: stop producing to BullMQ, let Node drain, then switch.
@@ -69,6 +70,8 @@ export CONTRACT_BASE_URL=http://localhost:8080 \
        CONTRACT_DATABASE_URL=$TEST_DATABASE_URL CONTRACT_REDIS_URL=redis://localhost:6379 \
        CONTRACT_ALLOW_RESET=1                          # seed TRUNCATES all tables — local DB only
 pytest -q tests/contract                               # verify against goldens
+export CONTRACT_NODE_URL=http://localhost:3000 CONTRACT_PY_URL=http://localhost:8000
+pytest -q tests/contract/test_auth_interop.py         # Express <-> FastAPI session interop (needs ports published)
 CONTRACT_RECORD=1 pytest -q tests/contract             # re-record (only from Express, on purpose)
 
 python -m tests.contract.shadow_diff --old http://localhost:3000 --new http://localhost:8000
@@ -84,6 +87,9 @@ Behaviour discovered while writing the contracts. Each has a decision so nothing
 | D1 | `GET /payments/intents?limit=abc` → `Number('abc')=NaN` → **500, leaking the raw Prisma error** (file path, code excerpt, merchantId) to the client. Same pattern in `GET /refunds`. | **Fix in FastAPI**: 400 validation error. Re-record that golden on purpose in Step 4. |
 | D2 | Refresh tokens **rotate** and a used token is rejected, but there is no reuse/theft detection (no token family, no revoke-all on replay). | Preserve in Step 3; add family revocation afterwards as a separate, visible change. |
 | D3 | `GET /v1/metrics` has **no auth** and exposes queue counts and gateway success rates. | Preserve for parity; add ADMIN auth right after cutover (frontend uses it, so coordinate). |
-| D4 | The `auth` rate-limit tier (10/min) is defined but **never applied**: login/register are not rate-limited. | Apply in FastAPI's Step 3 (brute-force protection). Contract unchanged for normal use. |
+| D4 | The `auth` rate-limit tier (10/min) is defined but **never applied**: login/register are not rate-limited. | Moved to Step 3b: a parity cutover must not change behaviour. |
 | D5 | `authenticate`/`requireRole` 401/403 bodies have **no `requestId`** (hand-written responses), while errors from `next(err)` do. | Preserve exactly; goldens pin both shapes. |
 | D6 | Malformed JSON → 400 with V8's `JSON.parse` message text. | **Accepted deviation**: status + envelope are contract, message text isn't. |
+| D7 | Non-string `email`/`password`/`name` (e.g. `{"email": 1}`) reach Prisma/bcrypt → **500 with internals**. A request with no JSON body also 500s (`Cannot destructure property of req.body`). | **Fixed in FastAPI**: 400 with the same "required" message. No golden depended on the 500. |
+| D8 | `refresh` does `GET` then `DEL` in two round trips: a check-then-act race where concurrent refreshes with one token could both succeed. **Not reproducible locally** (40 concurrent requests → 1 success, 5/5 rounds); the window grows with remote Redis latency (Upstash) and multiple instances. | **Fixed in FastAPI** with atomic `GETDEL`: same contract, race impossible by construction. |
+| D9 | Express's limiter keys anonymous traffic on `req.ip`, which behind nginx is **the gateway's IP**, so all anonymous clients share one bucket. | Step 3b keys on `X-Real-IP` set by our gateway (trusted hop only). |
