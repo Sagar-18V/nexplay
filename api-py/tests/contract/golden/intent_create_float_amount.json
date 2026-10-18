@@ -1,0 +1,12 @@
+{
+  "body": {
+    "message": "amount must be a positive integer (paise)",
+    "requestId": "<requestId>",
+    "success": false
+  },
+  "headers": {
+    "content-type": "application/json",
+    "x-ratelimit-limit": "30"
+  },
+  "status": 400
+}

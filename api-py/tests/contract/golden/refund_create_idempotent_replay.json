@@ -1,0 +1,23 @@
+{
+  "body": {
+    "data": {
+      "amount": 10000,
+      "attempts": 1,
+      "createdAt": "2026-09-01T09:13:00.000Z",
+      "failureReason": null,
+      "gatewayRefundRef": "rf_seed_31",
+      "id": "00000000-0000-4000-8000-000000000031",
+      "idempotencyKey": "seed-r31",
+      "merchantId": "00000000-0000-4000-8000-000000000001",
+      "processedAt": "2026-09-01T09:14:00.000Z",
+      "reason": "customer_request",
+      "status": "SUCCEEDED",
+      "transactionId": "00000000-0000-4000-8000-000000000022"
+    },
+    "success": true
+  },
+  "headers": {
+    "content-type": "application/json"
+  },
+  "status": 200
+}

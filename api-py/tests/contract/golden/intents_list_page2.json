@@ -1,0 +1,44 @@
+{
+  "body": {
+    "data": [
+      {
+        "amount": 25000,
+        "createdAt": "2026-09-01T09:20:00.000Z",
+        "currency": "INR",
+        "id": "00000000-0000-4000-8000-000000000012",
+        "idempotencyKey": "seed-i12",
+        "merchantId": "00000000-0000-4000-8000-000000000001",
+        "metadata": null,
+        "method": "CARD",
+        "status": "CREATED",
+        "transactions": [
+          {
+            "amount": 25000,
+            "createdAt": "2026-09-01T09:20:00.000Z",
+            "failureReason": null,
+            "feeAmount": null,
+            "gateway": "PAYFLOW",
+            "gatewayTxnId": null,
+            "id": "00000000-0000-4000-8000-000000000023",
+            "intentId": "00000000-0000-4000-8000-000000000012",
+            "latencyMs": null,
+            "refundedAmount": 0,
+            "status": "PENDING"
+          }
+        ],
+        "updatedAt": "2026-09-01T09:20:00.000Z"
+      }
+    ],
+    "meta": {
+      "limit": 1,
+      "offset": 1,
+      "total": 3
+    },
+    "success": true
+  },
+  "headers": {
+    "content-type": "application/json",
+    "x-ratelimit-limit": "120"
+  },
+  "status": 200
+}

@@ -16,3 +16,8 @@ backend/node_modules/
 
 # VS Code
 .vscode/settings.json
+# Python
+__pycache__/
+.pytest_cache/
+.venv/
+*.rdb

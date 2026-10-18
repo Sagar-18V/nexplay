@@ -1,0 +1,11 @@
+{
+  "body": {
+    "message": "Invalid credentials",
+    "requestId": "<requestId>",
+    "success": false
+  },
+  "headers": {
+    "content-type": "application/json"
+  },
+  "status": 401
+}

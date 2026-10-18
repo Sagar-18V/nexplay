@@ -1,0 +1,25 @@
+{
+  "body": {
+    "data": [
+      {
+        "attempts": 3,
+        "createdAt": "2026-09-01T09:32:00.000Z",
+        "deliveredAt": null,
+        "event": "payment.failed",
+        "id": "00000000-0000-4000-8000-000000000051",
+        "lastAttemptedAt": "2026-09-01T09:35:00.000Z",
+        "merchantId": "00000000-0000-4000-8000-000000000001",
+        "payload": {
+          "intent_id": "00000000-0000-4000-8000-000000000013",
+          "reason": "INSUFFICIENT_FUNDS"
+        },
+        "status": "FAILED"
+      }
+    ],
+    "success": true
+  },
+  "headers": {
+    "content-type": "application/json"
+  },
+  "status": 200
+}

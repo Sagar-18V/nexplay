@@ -1,0 +1,10 @@
+{
+  "body": {
+    "message": "a valid email is required",
+    "success": false
+  },
+  "headers": {
+    "content-type": "application/json"
+  },
+  "status": 400
+}

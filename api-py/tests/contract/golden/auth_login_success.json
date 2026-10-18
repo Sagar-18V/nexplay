@@ -1,0 +1,30 @@
+{
+  "body": {
+    "data": {
+      "accessToken": "<jwt>",
+      "merchant": {
+        "apiKey": "00000000-0000-4000-8000-000000000101",
+        "email": "alpha@nexpay.test",
+        "id": "00000000-0000-4000-8000-000000000001",
+        "name": "Alpha Store",
+        "role": "MERCHANT"
+      }
+    },
+    "success": true
+  },
+  "headers": {
+    "content-type": "application/json",
+    "set-cookie": [
+      {
+        "cleared": false,
+        "expiresInPast": false,
+        "httponly": true,
+        "max-age": "604800",
+        "name": "refreshToken",
+        "path": "/v1/auth",
+        "samesite": "Strict"
+      }
+    ]
+  },
+  "status": 200
+}

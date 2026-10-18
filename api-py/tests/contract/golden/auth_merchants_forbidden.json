@@ -1,0 +1,10 @@
+{
+  "body": {
+    "message": "Insufficient permissions",
+    "success": false
+  },
+  "headers": {
+    "content-type": "application/json"
+  },
+  "status": 403
+}

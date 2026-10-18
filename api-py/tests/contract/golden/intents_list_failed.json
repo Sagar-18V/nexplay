@@ -1,0 +1,44 @@
+{
+  "body": {
+    "data": [
+      {
+        "amount": 9900,
+        "createdAt": "2026-09-01T09:30:00.000Z",
+        "currency": "INR",
+        "id": "00000000-0000-4000-8000-000000000013",
+        "idempotencyKey": "seed-i13",
+        "merchantId": "00000000-0000-4000-8000-000000000001",
+        "metadata": null,
+        "method": "NET_BANKING",
+        "status": "FAILED",
+        "transactions": [
+          {
+            "amount": 9900,
+            "createdAt": "2026-09-01T09:31:00.000Z",
+            "failureReason": "INSUFFICIENT_FUNDS",
+            "feeAmount": null,
+            "gateway": "SWIFTPAY",
+            "gatewayTxnId": null,
+            "id": "00000000-0000-4000-8000-000000000024",
+            "intentId": "00000000-0000-4000-8000-000000000013",
+            "latencyMs": 2004,
+            "refundedAmount": 0,
+            "status": "FAILED"
+          }
+        ],
+        "updatedAt": "2026-09-01T09:31:00.000Z"
+      }
+    ],
+    "meta": {
+      "limit": 20,
+      "offset": 0,
+      "total": 1
+    },
+    "success": true
+  },
+  "headers": {
+    "content-type": "application/json",
+    "x-ratelimit-limit": "120"
+  },
+  "status": 200
+}

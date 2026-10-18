@@ -1,0 +1,11 @@
+{
+  "body": {
+    "message": "<json parse error>",
+    "requestId": "<requestId>",
+    "success": false
+  },
+  "headers": {
+    "content-type": "application/json"
+  },
+  "status": 400
+}

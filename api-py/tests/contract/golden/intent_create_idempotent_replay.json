@@ -1,0 +1,22 @@
+{
+  "body": {
+    "data": {
+      "amount": 25000,
+      "createdAt": "2026-09-01T09:20:00.000Z",
+      "currency": "INR",
+      "id": "00000000-0000-4000-8000-000000000012",
+      "idempotencyKey": "seed-i12",
+      "merchantId": "00000000-0000-4000-8000-000000000001",
+      "metadata": null,
+      "method": "CARD",
+      "status": "CREATED",
+      "updatedAt": "2026-09-01T09:20:00.000Z"
+    },
+    "success": true
+  },
+  "headers": {
+    "content-type": "application/json",
+    "x-ratelimit-limit": "30"
+  },
+  "status": 200
+}

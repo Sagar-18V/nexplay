@@ -1,0 +1,17 @@
+{
+  "body": {
+    "data": {
+      "apiKey": "00000000-0000-4000-8000-000000000101",
+      "email": "alpha@nexpay.test",
+      "id": "00000000-0000-4000-8000-000000000001",
+      "isActive": true,
+      "name": "Alpha Store",
+      "role": "MERCHANT"
+    },
+    "success": true
+  },
+  "headers": {
+    "content-type": "application/json"
+  },
+  "status": 200
+}

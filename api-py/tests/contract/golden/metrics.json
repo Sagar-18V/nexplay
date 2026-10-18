@@ -1,0 +1,62 @@
+{
+  "body": {
+    "data": {
+      "gateways": [
+        {
+          "avgLatencyMs": 143,
+          "failureCount": 9,
+          "gateway": "STRIPEIN",
+          "method": "UPI",
+          "successCount": 41,
+          "successRate": "82.0%"
+        },
+        {
+          "avgLatencyMs": 0,
+          "failureCount": 0,
+          "gateway": "RAZORX",
+          "method": "UPI",
+          "successCount": 0,
+          "successRate": "n/a"
+        }
+      ],
+      "queues": {
+        "reconciliation": [
+          "active",
+          "completed",
+          "delayed",
+          "failed",
+          "paused",
+          "prioritized",
+          "waiting",
+          "waiting-children"
+        ],
+        "refunds": [
+          "active",
+          "completed",
+          "delayed",
+          "failed",
+          "paused",
+          "prioritized",
+          "waiting",
+          "waiting-children"
+        ],
+        "webhooks": [
+          "active",
+          "completed",
+          "delayed",
+          "failed",
+          "paused",
+          "prioritized",
+          "waiting",
+          "waiting-children"
+        ]
+      },
+      "timestamp": "<now>"
+    },
+    "success": true
+  },
+  "headers": {
+    "content-type": "application/json"
+  },
+  "status": 200
+}

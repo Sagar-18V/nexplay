@@ -1,0 +1,11 @@
+{
+  "body": {
+    "message": "Intent is FAILED, cannot process",
+    "success": false
+  },
+  "headers": {
+    "content-type": "application/json",
+    "x-ratelimit-limit": "30"
+  },
+  "status": 422
+}

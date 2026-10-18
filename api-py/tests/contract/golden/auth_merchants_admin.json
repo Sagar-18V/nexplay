@@ -1,0 +1,35 @@
+{
+  "body": {
+    "data": [
+      {
+        "createdAt": "2026-09-01T09:02:00.000Z",
+        "email": "admin@nexpay.test",
+        "id": "00000000-0000-4000-8000-000000000003",
+        "isActive": true,
+        "name": "Ops Admin",
+        "role": "ADMIN"
+      },
+      {
+        "createdAt": "2026-09-01T09:01:00.000Z",
+        "email": "beta@nexpay.test",
+        "id": "00000000-0000-4000-8000-000000000002",
+        "isActive": true,
+        "name": "Beta Mart",
+        "role": "MERCHANT"
+      },
+      {
+        "createdAt": "2026-09-01T09:00:00.000Z",
+        "email": "alpha@nexpay.test",
+        "id": "00000000-0000-4000-8000-000000000001",
+        "isActive": true,
+        "name": "Alpha Store",
+        "role": "MERCHANT"
+      }
+    ],
+    "success": true
+  },
+  "headers": {
+    "content-type": "application/json"
+  },
+  "status": 200
+}

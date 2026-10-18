@@ -1,0 +1,10 @@
+{
+  "body": {
+    "message": "Invalid or expired token",
+    "success": false
+  },
+  "headers": {
+    "content-type": "application/json"
+  },
+  "status": 401
+}

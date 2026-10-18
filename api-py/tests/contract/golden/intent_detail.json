@@ -1,0 +1,55 @@
+{
+  "body": {
+    "data": {
+      "amount": 50000,
+      "createdAt": "2026-09-01T09:10:00.000Z",
+      "currency": "INR",
+      "id": "00000000-0000-4000-8000-000000000011",
+      "idempotencyKey": "seed-i11",
+      "merchantId": "00000000-0000-4000-8000-000000000001",
+      "metadata": {
+        "items": [
+          1,
+          2
+        ],
+        "orderId": "ORD-11"
+      },
+      "method": "UPI",
+      "status": "PARTIALLY_REFUNDED",
+      "transactions": [
+        {
+          "amount": 50000,
+          "createdAt": "2026-09-01T09:11:00.000Z",
+          "failureReason": "GATEWAY_TIMEOUT",
+          "feeAmount": null,
+          "gateway": "RAZORX",
+          "gatewayTxnId": null,
+          "id": "00000000-0000-4000-8000-000000000021",
+          "intentId": "00000000-0000-4000-8000-000000000011",
+          "latencyMs": 812,
+          "refundedAmount": 0,
+          "status": "FAILED"
+        },
+        {
+          "amount": 50000,
+          "createdAt": "2026-09-01T09:12:00.000Z",
+          "failureReason": null,
+          "feeAmount": 1000,
+          "gateway": "STRIPEIN",
+          "gatewayTxnId": "stp_seed_22",
+          "id": "00000000-0000-4000-8000-000000000022",
+          "intentId": "00000000-0000-4000-8000-000000000011",
+          "latencyMs": 143,
+          "refundedAmount": 10000,
+          "status": "SUCCESS"
+        }
+      ],
+      "updatedAt": "2026-09-01T09:15:00.000Z"
+    },
+    "success": true
+  },
+  "headers": {
+    "content-type": "application/json"
+  },
+  "status": 200
+}

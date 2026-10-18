@@ -1,0 +1,11 @@
+{
+  "body": {
+    "message": "Payment intent not found",
+    "requestId": "<requestId>",
+    "success": false
+  },
+  "headers": {
+    "content-type": "application/json"
+  },
+  "status": 404
+}

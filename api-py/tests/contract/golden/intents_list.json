@@ -1,0 +1,104 @@
+{
+  "body": {
+    "data": [
+      {
+        "amount": 9900,
+        "createdAt": "2026-09-01T09:30:00.000Z",
+        "currency": "INR",
+        "id": "00000000-0000-4000-8000-000000000013",
+        "idempotencyKey": "seed-i13",
+        "merchantId": "00000000-0000-4000-8000-000000000001",
+        "metadata": null,
+        "method": "NET_BANKING",
+        "status": "FAILED",
+        "transactions": [
+          {
+            "amount": 9900,
+            "createdAt": "2026-09-01T09:31:00.000Z",
+            "failureReason": "INSUFFICIENT_FUNDS",
+            "feeAmount": null,
+            "gateway": "SWIFTPAY",
+            "gatewayTxnId": null,
+            "id": "00000000-0000-4000-8000-000000000024",
+            "intentId": "00000000-0000-4000-8000-000000000013",
+            "latencyMs": 2004,
+            "refundedAmount": 0,
+            "status": "FAILED"
+          }
+        ],
+        "updatedAt": "2026-09-01T09:31:00.000Z"
+      },
+      {
+        "amount": 25000,
+        "createdAt": "2026-09-01T09:20:00.000Z",
+        "currency": "INR",
+        "id": "00000000-0000-4000-8000-000000000012",
+        "idempotencyKey": "seed-i12",
+        "merchantId": "00000000-0000-4000-8000-000000000001",
+        "metadata": null,
+        "method": "CARD",
+        "status": "CREATED",
+        "transactions": [
+          {
+            "amount": 25000,
+            "createdAt": "2026-09-01T09:20:00.000Z",
+            "failureReason": null,
+            "feeAmount": null,
+            "gateway": "PAYFLOW",
+            "gatewayTxnId": null,
+            "id": "00000000-0000-4000-8000-000000000023",
+            "intentId": "00000000-0000-4000-8000-000000000012",
+            "latencyMs": null,
+            "refundedAmount": 0,
+            "status": "PENDING"
+          }
+        ],
+        "updatedAt": "2026-09-01T09:20:00.000Z"
+      },
+      {
+        "amount": 50000,
+        "createdAt": "2026-09-01T09:10:00.000Z",
+        "currency": "INR",
+        "id": "00000000-0000-4000-8000-000000000011",
+        "idempotencyKey": "seed-i11",
+        "merchantId": "00000000-0000-4000-8000-000000000001",
+        "metadata": {
+          "items": [
+            1,
+            2
+          ],
+          "orderId": "ORD-11"
+        },
+        "method": "UPI",
+        "status": "PARTIALLY_REFUNDED",
+        "transactions": [
+          {
+            "amount": 50000,
+            "createdAt": "2026-09-01T09:12:00.000Z",
+            "failureReason": null,
+            "feeAmount": 1000,
+            "gateway": "STRIPEIN",
+            "gatewayTxnId": "stp_seed_22",
+            "id": "00000000-0000-4000-8000-000000000022",
+            "intentId": "00000000-0000-4000-8000-000000000011",
+            "latencyMs": 143,
+            "refundedAmount": 10000,
+            "status": "SUCCESS"
+          }
+        ],
+        "updatedAt": "2026-09-01T09:15:00.000Z"
+      }
+    ],
+    "meta": {
+      "limit": 20,
+      "offset": 0,
+      "total": 3
+    },
+    "success": true
+  },
+  "headers": {
+    "content-type": "application/json",
+    "x-ratelimit-limit": "120"
+  },
+  "status": 200
+}

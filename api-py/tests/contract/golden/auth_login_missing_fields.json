@@ -1,0 +1,10 @@
+{
+  "body": {
+    "message": "email and password are required",
+    "success": false
+  },
+  "headers": {
+    "content-type": "application/json"
+  },
+  "status": 400
+}

@@ -1,0 +1,23 @@
+{
+  "body": {
+    "data": {
+      "accessToken": "<jwt>"
+    },
+    "success": true
+  },
+  "headers": {
+    "content-type": "application/json",
+    "set-cookie": [
+      {
+        "cleared": false,
+        "expiresInPast": false,
+        "httponly": true,
+        "max-age": "604800",
+        "name": "refreshToken",
+        "path": "/v1/auth",
+        "samesite": "Strict"
+      }
+    ]
+  },
+  "status": 200
+}

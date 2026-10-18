@@ -1,0 +1,11 @@
+{
+  "body": {
+    "message": "Email already registered",
+    "requestId": "<requestId>",
+    "success": false
+  },
+  "headers": {
+    "content-type": "application/json"
+  },
+  "status": 409
+}

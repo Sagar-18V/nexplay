@@ -1,0 +1,83 @@
+{
+  "body": {
+    "data": {
+      "completedAt": "2026-09-02T01:45:00.000Z",
+      "gatewayJobs": [
+        {
+          "attempts": 1,
+          "completedAt": "2026-09-02T01:42:00.000Z",
+          "discrepancies": [
+            {
+              "createdAt": "2026-09-02T01:42:00.000Z",
+              "gatewayAmount": "1234",
+              "gatewayJobId": "00000000-0000-4000-8000-000000000071",
+              "gatewayStatus": "SUCCESS",
+              "gatewayTxnRef": "rzx_82",
+              "id": "00000000-0000-4000-8000-000000000082",
+              "ourAmount": null,
+              "ourStatus": null,
+              "paymentId": null,
+              "resolutionNote": "test txn from gateway",
+              "resolvedAt": "2026-09-02T18:20:00.000Z",
+              "status": "RESOLVED",
+              "type": "MISSING_IN_DB"
+            },
+            {
+              "createdAt": "2026-09-02T01:41:00.000Z",
+              "gatewayAmount": "9007199254740000",
+              "gatewayJobId": "00000000-0000-4000-8000-000000000071",
+              "gatewayStatus": "SUCCESS",
+              "gatewayTxnRef": "rzx_81",
+              "id": "00000000-0000-4000-8000-000000000081",
+              "ourAmount": "9007199254740993",
+              "ourStatus": "SUCCESS",
+              "paymentId": "00000000-0000-4000-8000-000000000022",
+              "resolutionNote": null,
+              "resolvedAt": null,
+              "status": "OPEN",
+              "type": "AMOUNT_MISMATCH"
+            }
+          ],
+          "discrepancyCount": 2,
+          "errorMessage": null,
+          "expectedAmount": "9007199254740993",
+          "gateway": "RAZORX",
+          "id": "00000000-0000-4000-8000-000000000071",
+          "matchedCount": 0,
+          "reportedAmount": "9007199254740000",
+          "runId": "00000000-0000-4000-8000-000000000061",
+          "startedAt": "2026-09-02T01:40:00.000Z",
+          "status": "COMPLETED",
+          "totalInDb": 2,
+          "totalInFile": 2
+        },
+        {
+          "attempts": 3,
+          "completedAt": "2026-09-02T01:45:00.000Z",
+          "discrepancies": [],
+          "discrepancyCount": 0,
+          "errorMessage": "settlement file not found",
+          "expectedAmount": "0",
+          "gateway": "STRIPEIN",
+          "id": "00000000-0000-4000-8000-000000000072",
+          "matchedCount": 0,
+          "reportedAmount": "0",
+          "runId": "00000000-0000-4000-8000-000000000061",
+          "startedAt": "2026-09-02T01:40:00.000Z",
+          "status": "FAILED",
+          "totalInDb": 0,
+          "totalInFile": 0
+        }
+      ],
+      "id": "00000000-0000-4000-8000-000000000061",
+      "runDate": "2026-09-01T00:00:00.000Z",
+      "startedAt": "2026-09-02T01:40:00.000Z",
+      "status": "PARTIAL"
+    },
+    "success": true
+  },
+  "headers": {
+    "content-type": "application/json"
+  },
+  "status": 200
+}

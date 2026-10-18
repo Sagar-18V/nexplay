@@ -1,0 +1,10 @@
+{
+  "body": {
+    "message": "Authorization header missing",
+    "success": false
+  },
+  "headers": {
+    "content-type": "application/json"
+  },
+  "status": 401
+}

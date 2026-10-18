@@ -1,0 +1,18 @@
+{
+  "body": {
+    "data": {
+      "apiKey": "<uuid>",
+      "createdAt": "<ts>",
+      "email": "<email>",
+      "id": "<uuid>",
+      "name": "New Co",
+      "role": "MERCHANT",
+      "webhookUrl": null
+    },
+    "success": true
+  },
+  "headers": {
+    "content-type": "application/json"
+  },
+  "status": 201
+}

@@ -1,0 +1,11 @@
+{
+  "body": {
+    "message": "Invalid or expired refresh token",
+    "requestId": "<requestId>",
+    "success": false
+  },
+  "headers": {
+    "content-type": "application/json"
+  },
+  "status": 401
+}

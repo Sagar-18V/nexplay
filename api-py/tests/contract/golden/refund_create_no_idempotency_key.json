@@ -1,0 +1,11 @@
+{
+  "body": {
+    "message": "Idempotency-Key header is required",
+    "requestId": "<requestId>",
+    "success": false
+  },
+  "headers": {
+    "content-type": "application/json"
+  },
+  "status": 400
+}
