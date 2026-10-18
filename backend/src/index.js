@@ -32,8 +32,15 @@ app.use('/v1/reconciliation', require('./modules/reconciliation/reconciliation.r
 app.use('/v1/webhooks', require('./modules/webhooks/webhook.routes'));
 app.use('/v1/metrics', require('./modules/metrics/metrics.routes'));
 
-// Start BullMQ workers (refund + reconciliation)
-require('./workers');
+// BullMQ workers (refund, webhook, reconciliation). Step 6 moved all producers to FastAPI
+// + Celery. Drain-and-switch: keep these ON until `python -m app.ops.bullmq_drain` reports
+// every queue empty, then set RUN_BULLMQ_WORKERS=0. Set it back to 1 only if you roll the
+// write routes back to Express (otherwise their jobs would sit in Redis unprocessed).
+if (process.env.RUN_BULLMQ_WORKERS !== '0') {
+    require('./workers');
+} else {
+    console.log('[workers] BullMQ workers disabled (RUN_BULLMQ_WORKERS=0): queues are served by Celery');
+}
 
 // global error handler (must be last)
 app.use((err, req, res, next) => {

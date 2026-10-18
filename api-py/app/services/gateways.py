@@ -94,3 +94,35 @@ async def process_payment(gateway: str, amount: int, method: str,
     if adapter is None:
         raise ValueError(f"Unknown gateway: {gateway}")
     return await adapter(amount, method, rng or _rng, sleep)
+
+
+# ---------------------------------------------------------------- refunds (Step 6)
+@dataclass
+class RefundResult:
+    success: bool
+    gateway_refund_ref: str | None = None
+    error: str | None = None
+    retryable: bool | None = None
+
+
+# (latency range ms, failure threshold, error code, ref prefix) — from each adapter's processRefund.
+# Every refund failure in the Node adapters is retryable.
+_REFUND_PROFILES = {
+    "RAZORX": ((300, 1000), 0.97, "gateway_timeout", "rzx_rf"),
+    "STRIPEIN": ((500, 1500), 0.95, "processing_error", "str_rf"),
+    "PAYFLOW": ((200, 800), 0.96, "npci_delay", "pfl_rf"),
+    "SWIFTPAY": ((300, 2000), 0.90, "refund_queue_full", "swp_rf"),   # "the flaky refunder"
+}
+
+
+def process_refund(gateway: str, amount: int, rng: random.Random | None = None,
+                   sleep=time.sleep) -> RefundResult:
+    """Synchronous: runs inside a Celery worker (Celery tasks are sync)."""
+    if gateway not in _REFUND_PROFILES:
+        raise ValueError(f"Unknown gateway: {gateway}")
+    rng = rng or _rng
+    (lo, hi), threshold, error, prefix = _REFUND_PROFILES[gateway]
+    sleep(_rand(rng, lo, hi) / 1000)
+    if rng.random() > threshold:
+        return RefundResult(False, error=error, retryable=True)
+    return RefundResult(True, gateway_refund_ref=f"{prefix}_{int(time.time() * 1000)}_{_rand(rng, 1000, 9999)}")

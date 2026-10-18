@@ -28,16 +28,16 @@ React (Vite)  ──/v1──▶  nginx :8080  ──┬──▶  FastAPI :8000
 | `GET /v1/auth/me`, `GET /v1/auth/merchants` | **FastAPI** ✅ | 3 | `authenticate` / `require_role` dependencies |
 | `POST /v1/auth/register·login·refresh·logout` | **FastAPI** ✅ | 3 | tokens, refresh keys and hashes interchangeable with Express |
 | `GET /v1/payments/intents`, `GET /v1/payments/intents/:id` | **FastAPI** ✅ | 4 | offset pagination; bad params → 400 (D1); shares rate-limit keys with Express |
-| `POST /v1/payments/intents` | **Canary 10% → FastAPI** 🟡 | 5 | idempotency (D12, D14), write rate limit shared with Express |
-| `POST /v1/payments/intents/:id/process` | **Canary 10% → FastAPI** 🟡 | 5 | atomic claim (D13), fallback, ledger, webhooks via Celery |
+| `POST /v1/payments/intents` | **FastAPI** ✅ | 5 | canary ramped to 100% in Step 6; idempotency (D12, D14) |
+| `POST /v1/payments/intents/:id/process` | **FastAPI** ✅ | 5 | atomic claim (D13), fallback, ledger, webhooks via Celery |
 | `GET /v1/refunds`, `GET /v1/refunds/:refundId` | **FastAPI** ✅ | 4 | |
-| `POST /v1/refunds/transactions/:txnId` | Express | 6 | enqueues refund job |
+| `POST /v1/refunds/transactions/:txnId` | **FastAPI** ✅ | 6 | row-locked over-refund check; Celery `refunds.process`; D20 |
 | `GET /v1/reconciliation/runs`, `GET …/runs/:id` | **FastAPI** ✅ | 4 | platform-wide (any merchant can read) |
-| `POST /v1/reconciliation/runs/trigger` | Express | 6 | BullMQ flow |
+| `POST /v1/reconciliation/runs/trigger` | **FastAPI** ✅ | 6 | Celery `recon.gateway` ×4, DB-coordinated finalize; D19 |
 | `GET /v1/webhooks/failed` | **FastAPI** ✅ | 4 | |
-| `POST /v1/webhooks/:id/redeliver` | Express | 6 | enqueues webhook job |
-| Worker: webhook delivery | **Celery** (FastAPI events) + BullMQ (Express events, redeliver) | 5 → 6 | both deliver into `webhook_logs`; BullMQ side drains in Step 6 |
-| Workers: refund, recon-gateway, recon-run | Express (BullMQ) | 6 | BullMQ → Celery, drain-and-switch per queue |
+| `POST /v1/webhooks/:id/redeliver` | **FastAPI** ✅ | 6 | fresh Celery task = fresh retry budget |
+| Workers: webhooks, refunds, reconciliation | **Celery** ✅ | 5–6 | queues `webhooks`, `refunds`, `recon`; Node BullMQ workers off (`RUN_BULLMQ_WORKERS=0`) |
+| Daily reconciliation (02:00 UTC) | **Celery beat** ✅ | 6 | the BullMQ schedule was never registered (D18) |
 
 ## Steps
 - [x] **1. Facade + skeleton.** nginx gateway, FastAPI service on the shared DB/Redis, request-id propagation, Express-compatible errors and logs, `/v1/health`.
@@ -45,9 +45,10 @@ React (Vite)  ──/v1──▶  nginx :8080  ──┬──▶  FastAPI :8000
 - [x] **3. Auth.** All six `/v1/auth/*` routes on FastAPI with identical contracts (18 goldens), plus 8 mixed-fleet interop tests: access tokens, refresh tokens, password hashes and logout work across Express ⇄ FastAPI in both directions, so rollback never logs anyone out.
 - [ ] **3b. Auth hardening** (deliberate behaviour changes, after the parity cutover): refresh-token family revocation on reuse (D2), login/register rate limit keyed on the real client IP (D4, D9).
 - [x] **4. Read endpoints.** 8 GET routes on FastAPI. Gate before the flip: contracts green against FastAPI directly and shadow_diff 14/14 (Express vs FastAPI on the same data). nginx routes by **method** on mixed paths, so writes stay on Express. Rate-limit buckets are shared, so splitting traffic doesn't double anyone's limit. BullMQ counts verified against real jobs in delayed/paused/prioritized/active/failed states. D1 fixed (with xfail-strict proof that Express still has it).
-- [x] **5. Payment writes (canary at 10%).** Create and process intents on FastAPI: gateways, weighted routing, 3-hop fallback, double-entry ledger, gateway stats, webhook events. **Celery replaces BullMQ** for webhook delivery: same HMAC body and signature (your `reciver.js` validates both), 3 attempts with 2 s/4 s backoff, then `FAILED`. nginx sends a sticky share of sessions (hash of the bearer token) to FastAPI; `X-NexPay-Backend: py|node` pins a request. Before ramping: three money bugs reproduced on Express (D12–D14). D13/D14 are hotfixed in Express too, because Express still serves ~90% of writes. Mixed-fleet races (concurrent `/process` split across both backends) charge exactly once.
+- [x] **5. Payment writes (canary 10% → 100% in Step 6).** Create and process intents on FastAPI: gateways, weighted routing, 3-hop fallback, double-entry ledger, gateway stats, webhook events. **Celery replaces BullMQ** for webhook delivery: same HMAC body and signature (your `reciver.js` validates both), 3 attempts with 2 s/4 s backoff, then `FAILED`. nginx sends a sticky share of sessions (hash of the bearer token) to FastAPI; `X-NexPay-Backend: py|node` pins a request. Before ramping: three money bugs reproduced on Express (D12–D14). D13/D14 are hotfixed in Express too, because Express still serves ~90% of writes. Mixed-fleet races (concurrent `/process` split across both backends) charge exactly once.
   - **Ramp:** edit `split_clients` in `gateway/nginx.conf` 10% → 50% → 100%, `nginx -s reload`, watching for 5xx and ledger imbalance. **Rollback:** 0%.
-- [ ] **6. Queues → Celery.** Move refunds, webhook redelivery and reconciliation to Celery: stop producing to BullMQ, let the Node workers drain, then remove them. Also moves the worker out of the API process for good (D10).
+- [x] **6. Queues → Celery.** Refund creation, webhook redelivery and the recon trigger moved to FastAPI and enqueue Celery tasks; the payment canary was ramped to 100%, so nothing produces BullMQ jobs any more. Reconciliation's BullMQ flow (parent waits for 4 children, even failed ones) became 4 Celery tasks plus a **single conditional UPDATE** that finalizes the run when the last one reaches a terminal state: no chord, no result backend, and a dead gateway can't block the run. The settlement generator and engine are bit-identical to Node (tested against output from the real Node code). Celery beat runs the 02:00 UTC reconciliation that BullMQ never actually scheduled (D18).
+  - **Drain-and-switch (how it was cut over):** 1) route every producer to FastAPI (nginx) → 2) `python -m app.ops.bullmq_drain --wait 600` until `DRAINED` (Node workers finish in-flight jobs) → 3) `RUN_BULLMQ_WORKERS=0` on Express and restart. **Rollback:** route back in nginx *and* set `RUN_BULLMQ_WORKERS=1`, or Express's jobs sit in Redis unprocessed.
 - [ ] **7. Decommission Express.** Alembic baseline + `stamp`, nginx default → FastAPI, delete `backend/`.
 
 ## Tests
@@ -76,7 +77,11 @@ export CONTRACT_NODE_URL=http://localhost:3000 CONTRACT_PY_URL=http://localhost:
 pytest -q tests/contract/test_auth_interop.py         # Express <-> FastAPI session interop (needs ports published)
 pytest -q tests/contract/test_payments_interop.py     # create/replay/process across backends + split-backend races
 CONTRACT_PIN_BACKEND=py pytest -q tests/contract      # through the gateway with all writes pinned to FastAPI
-celery -A app.worker.celery_app worker -Q webhooks    # webhook worker (docker compose runs it as `worker`)
+celery -A app.worker.celery_app worker -Q webhooks,refunds,recon   # docker compose: `worker`
+celery -A app.worker.celery_app beat                                # docker compose: `beat` (run ONE)
+python -m app.ops.bullmq_drain                        # 0 = no legacy BullMQ jobs left
+# tests/contract/test_async_flows.py needs the worker running. Validating the Express
+# rollback path (CONTRACT_TARGET=express) needs RUN_BULLMQ_WORKERS=1 on Express.
 CONTRACT_RECORD=1 pytest -q tests/contract             # re-record (only from Express, on purpose)
 
 python -m tests.contract.shadow_diff --old http://localhost:3000 --new http://localhost:8000
@@ -87,6 +92,8 @@ The seed refuses to run without `CONTRACT_ALLOW_RESET=1` and refuses hosted host
 ## Porting traps (caught by tests, not Express bugs)
 - JS `toFixed` rounds exact binary ties **up**, Python's `format()` rounds them to **even**: 1 success / 15 failures is `"6.3%"` in Node and would have been `"6.2%"` in Python. `metrics.js_to_fixed` uses `Decimal` + `ROUND_HALF_UP`.
 - JS `Number()` ≠ Python `float()`: `float('nan')`, `float('inf')` and `float('1_000')` parse in Python but are `NaN` in JS, while `' 0x10 '` is 16 in JS and an error in Python. See `http.js_number`.
+- **Unordered Prisma `include`s return rows in database order, not primary-key order.** Step 4 sorted recon `gatewayJobs` by id; seeded runs had ascending ids, so goldens passed, until Step 6 created runs with random UUIDs and **shadow_diff flagged the mismatch**. Fixed by running the same unordered query, plus a stable `createdAt` sort with no id tie-break for discrepancies (a batch shares one `createdAt`, like `createMany`).
+- mulberry32 needs JS 32-bit semantics in Python: `Math.imul`, `>>>`, `| 0` (see `services/reconciliation.py`); checked against the real Node generator's output.
 - JS `Math.round` rounds halves **up**, Python's `round()` to **even**: `round(2.5) == 2`. Fee formulas use `math.floor(x + 0.5)` (`gateways._js_round`).
 - Express sets `X-RateLimit-*` *before* the handler, so they appear even on error responses. Dependencies stash headers on `request.state.response_headers`, and the middleware applies them to every response.
 
@@ -112,3 +119,6 @@ Behaviour discovered while writing the contracts. Each has a decision so nothing
 | D15 | StripeIN's fee is 2.9% + ₹3 flat, so for payments under about ₹3.09 the fee exceeds the amount and the ledger credits the merchant a **negative** `MERCHANT_PAYABLE` (₹1.25 → −₹1.79). Balanced, but wrong. | **Preserved** (pinned by a unit test). Business decision needed: minimum amount or fee cap. |
 | D16 | Webhook URLs are merchant-supplied and the worker POSTs to them as-is: **SSRF** (a merchant can point it at internal hosts). Same in Celery port. | Open. Fix after Step 6: allowlist schemes, resolve and block private/link-local ranges. |
 | D17 | If the process dies mid-`/process` (after the claim, before the outcome commits), the intent stays `PROCESSING` forever. Same in both. | Open. Needs a sweeper plus a gateway status query (idempotent by intent id). |
+| D18 | The 02:00 daily reconciliation was **never scheduled**: `registerReconciliationSchedule()` and `schedulerWorker` exist but nothing imports or calls them. Reconciliation only ever ran when someone hit the manual trigger. | **Fixed**: Celery beat, `crontab(hour=2, minute=0)` UTC, `recon.daily` (idempotent via unique `runDate`). |
+| D19 | The settlement generator reads `p.updatedAt`, which transactions don't have. **Any gateway with payments that day crashed** (`Cannot read properties of undefined (reading 'toISOString')`) → 3 attempts → `FAILED`; the run was labelled `PARTIAL`, hiding it. Reproduced: today's run → RAZORX/STRIPEIN/PAYFLOW FAILED, SWIFTPAY (no payments) COMPLETED. **Reconciliation could never succeed in production.** | **Fixed in FastAPI**: `settled_at` from `createdAt` (unused downstream). Same run → 4/4 COMPLETED on the first attempt. `fixed_in_fastapi`. |
+| D20 | Same flaw as D14 on refunds: **merchant B reusing A's refund `Idempotency-Key` got A's refund** (amount, reason). Reproduced. | **Fixed in FastAPI** (409). Express's route is no longer reachable through the gateway. |

@@ -1,0 +1,11 @@
+{
+  "body": {
+    "message": "runDate must be an ISO 8601 date (YYYY-MM-DD)",
+    "requestId": "<requestId>",
+    "success": false
+  },
+  "headers": {
+    "content-type": "application/json"
+  },
+  "status": 400
+}

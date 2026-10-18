@@ -5,11 +5,13 @@ Broker = the same Redis Express already uses. Celery's keys (`celery`, `webhooks
 `_kombu.*`, `unacked*`) don't collide with BullMQ's (`bull:*`), so both systems run
 side by side during the drain-and-switch.
 
-Run:  celery -A app.worker.celery_app worker -Q webhooks -c 10 -l INFO
+Run:  celery -A app.worker.celery_app worker -Q webhooks,refunds,recon -c 10 -l INFO
+      celery -A app.worker.celery_app beat -l INFO          # exactly ONE beat process
 """
 import ssl
 
 from celery import Celery
+from celery.schedules import crontab
 
 from app.core.config import get_settings
 
@@ -21,7 +23,7 @@ def _broker_url(url: str) -> str:
     return url
 
 
-celery_app = Celery("nexpay", broker=_broker_url(get_settings().redis_url), include=["app.worker.tasks"])
+celery_app = Celery("nexpay", broker=_broker_url(get_settings().redis_url), include=["app.worker.tasks", "app.worker.refund_tasks", "app.worker.recon_tasks"])
 
 celery_app.conf.update(
     task_serializer="json",
@@ -33,9 +35,19 @@ celery_app.conf.update(
     task_reject_on_worker_lost=True,
     worker_prefetch_multiplier=1,     # don't let one worker hoard slow webhook jobs
     task_default_queue="webhooks",
-    task_routes={"webhooks.deliver": {"queue": "webhooks"}},
+    task_routes={
+        "webhooks.deliver": {"queue": "webhooks"},
+        "refunds.process": {"queue": "refunds"},
+        "recon.gateway": {"queue": "recon"},
+        "recon.daily": {"queue": "recon"},
+    },
+    # Replaces the BullMQ repeatable job '0 2 * * *' that was never registered (D18).
+    timezone="UTC",
+    beat_schedule={
+        "daily-reconciliation": {"task": "recon.daily", "schedule": crontab(hour=2, minute=0)},
+    },
     # Redis broker redelivers un-acked tasks after this; keep it far above the longest
-    # task (5 s HTTP timeout) and retry countdowns (<= 8 s), or tasks run twice.
+    # task (5 s HTTP timeout) and retry countdowns (<= 10 s), or tasks run twice.
     broker_transport_options={"visibility_timeout": 3600},
     broker_connection_retry_on_startup=True,
 )

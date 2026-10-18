@@ -46,6 +46,9 @@ services:
       DATABASE_URL: postgresql://nexpay:nexpay_dev@postgres:5432/nexpay
       REDIS_URL: redis://redis:6379
       PORT: 3000
+      # Step 6: queues are served by Celery. Only after `python -m app.ops.bullmq_drain`
+      # reports DRAINED on an existing deployment; set to "1" if you roll writes back.
+      RUN_BULLMQ_WORKERS: "0"
     expose:
       - "3000"
     depends_on:
@@ -78,11 +81,24 @@ services:
       timeout: 5s
       retries: 5
 
-  # Celery worker: replaces the BullMQ webhook worker for events emitted by FastAPI.
-  # Express's BullMQ worker keeps draining its own queue until Step 6 moves redeliver.
+  # Celery worker: replaces all BullMQ workers (webhooks, refunds, reconciliation).
   worker:
     build: ./api-py
-    command: ["celery", "-A", "app.worker.celery_app", "worker", "-Q", "webhooks", "-c", "10", "-l", "INFO"]
+    command: ["celery", "-A", "app.worker.celery_app", "worker", "-Q", "webhooks,refunds,recon", "-c", "10", "-l", "INFO"]
+    env_file: ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://nexpay:nexpay_dev@postgres:5432/nexpay
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      api-py:
+        condition: service_healthy
+
+  # Celery beat: the daily 02:00 UTC reconciliation (the BullMQ schedule was never
+  # registered, finding D18). Run exactly ONE beat, or the job is scheduled twice (the
+  # unique runDate makes a duplicate a no-op, but don't rely on that).
+  beat:
+    build: ./api-py
+    command: ["celery", "-A", "app.worker.celery_app", "beat", "-l", "INFO", "-s", "/tmp/celerybeat-schedule"]
     env_file: ./backend/.env
     environment:
       DATABASE_URL: postgresql://nexpay:nexpay_dev@postgres:5432/nexpay
