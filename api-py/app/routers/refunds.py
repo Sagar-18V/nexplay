@@ -58,13 +58,12 @@ async def get_refund(
 
 
 # ====================================================================== create (Step 6)
-async def _replay_or_conflict(session: AsyncSession, key: str, merchant_id: str) -> JSONResponse | None:
-    existing = await session.scalar(select(Refund).where(Refund.idempotency_key == key))
+async def _replay(session: AsyncSession, key: str, merchant_id: str) -> JSONResponse | None:
+    """Replay within the merchant's key namespace (Alembic 0002). Express leaked across merchants (D20)."""
+    existing = await session.scalar(select(Refund).where(
+        Refund.merchant_id == merchant_id, Refund.idempotency_key == key))
     if existing is None:
         return None
-    if existing.merchant_id != merchant_id:
-        # D20 (same class as D14): Express returned the OTHER merchant's refund with a 200.
-        raise AppError("Idempotency-Key is already in use; use a unique key per request", 409)
     return JSONResponse({"success": True, "data": to_json(existing)}, status_code=200)
 
 
@@ -78,7 +77,7 @@ async def create_refund(
     key = request.headers.get("idempotency-key")
     if not key:
         raise AppError("Idempotency-Key header is required", 400)
-    if (replay := await _replay_or_conflict(session, key, merchant.id)) is not None:
+    if (replay := await _replay(session, key, merchant.id)) is not None:
         return replay
 
     body = await json_body(request)
@@ -119,7 +118,7 @@ async def create_refund(
         await session.commit()                                # releases the row lock
     except IntegrityError:
         await session.rollback()                              # concurrent same-key create (D12 class)
-        if (replay := await _replay_or_conflict(session, key, merchant.id)) is not None:
+        if (replay := await _replay(session, key, merchant.id)) is not None:
             return replay
         raise
 

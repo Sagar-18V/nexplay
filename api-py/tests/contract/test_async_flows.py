@@ -132,10 +132,12 @@ def test_concurrent_refunds_never_exceed_the_capture(api, tokens, pin, reset_rat
 
 
 @pytest.mark.fixed_in_fastapi("D20")
-def test_refund_idempotency_key_of_other_merchant_is_refused(api, tokens):
+def test_refund_idempotency_key_of_other_merchant_is_not_a_replay(api, tokens):
     # Seeded refund sid(31) with key 'seed-r31' belongs to Alpha. Express returned it to Beta.
+    # With per-merchant keys (Step 7) Beta's 'seed-r31' is a brand-new request: here it
+    # fails validation on its own merits (unknown transaction) and reveals nothing of Alpha's.
     r = _refund(api, tokens["beta"], "any-txn", 1, key="seed-r31")
-    assert_contract("refund_create_foreign_idempotency_key", r)
+    assert r.status_code == 404 and r.json()["message"] == "Transaction not found"
     assert "customer_request" not in r.text
 
 

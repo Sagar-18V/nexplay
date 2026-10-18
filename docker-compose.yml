@@ -1,3 +1,14 @@
+# NexPay after the migration: FastAPI + Celery on Postgres + Redis, behind nginx.
+# Secrets (JWT_SECRET, JWT_REFRESH_SECRET, ...) come from api-py/.env (git-ignored).
+
+x-api-env: &api-env
+  env_file:
+    - path: ./api-py/.env
+      required: false
+  environment:
+    DATABASE_URL: postgresql://nexpay:nexpay_dev@postgres:5432/nexpay
+    REDIS_URL: redis://redis:6379
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -25,84 +36,62 @@ services:
       timeout: 5s
       retries: 5
 
-  # Single public entry point. Routes each /v1 path to Express or FastAPI.
-  gateway:
-    image: nginx:1.27-alpine
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./gateway/nginx.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      backend:
-        condition: service_healthy
-      api-py:
-        condition: service_healthy
-
-  # Legacy Express service. Still owns the DB schema (runs prisma migrate deploy).
-  backend:
-    build: ./backend
-    env_file: ./backend/.env          # JWT secrets etc. (shared with api-py)
-    environment:                       # overrides .env -> local containers
-      DATABASE_URL: postgresql://nexpay:nexpay_dev@postgres:5432/nexpay
-      REDIS_URL: redis://redis:6379
-      PORT: 3000
-      # Step 6: queues are served by Celery. Only after `python -m app.ops.bullmq_drain`
-      # reports DRAINED on an existing deployment; set to "1" if you roll writes back.
-      RUN_BULLMQ_WORKERS: "0"
-    expose:
-      - "3000"
+  # One-shot: Alembic owns the schema. Fresh DB -> full build; DB that Prisma built
+  # (pre-Step 7 volume) -> verified, stamped at the baseline, then upgraded.
+  migrate:
+    build: ./api-py
+    command: ["python", "-m", "app.ops.migrate"]
+    <<: *api-env
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      # node:alpine ships wget, not curl. Express has no /v1/health (FastAPI owns it now).
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    restart: "no"
 
-  # New FastAPI service. Same DB, same Redis, same secrets. Never runs migrations.
   api-py:
     build: ./api-py
-    env_file: ./backend/.env
-    environment:
-      DATABASE_URL: postgresql://nexpay:nexpay_dev@postgres:5432/nexpay
-      REDIS_URL: redis://redis:6379
+    <<: *api-env
     expose:
       - "8000"
     depends_on:
-      backend:
-        condition: service_healthy     # wait until Prisma migrations have run
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/v1/health"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # Celery worker: replaces all BullMQ workers (webhooks, refunds, reconciliation).
+  # Celery workers: webhooks, refunds, reconciliation (replaced BullMQ in Steps 5-6).
   worker:
     build: ./api-py
     command: ["celery", "-A", "app.worker.celery_app", "worker", "-Q", "webhooks,refunds,recon", "-c", "10", "-l", "INFO"]
-    env_file: ./backend/.env
-    environment:
-      DATABASE_URL: postgresql://nexpay:nexpay_dev@postgres:5432/nexpay
-      REDIS_URL: redis://redis:6379
+    <<: *api-env
     depends_on:
-      api-py:
+      migrate:
+        condition: service_completed_successfully
+      redis:
         condition: service_healthy
 
-  # Celery beat: the daily 02:00 UTC reconciliation (the BullMQ schedule was never
-  # registered, finding D18). Run exactly ONE beat, or the job is scheduled twice (the
-  # unique runDate makes a duplicate a no-op, but don't rely on that).
+  # Celery beat: daily 02:00 UTC reconciliation. Run exactly ONE.
   beat:
     build: ./api-py
     command: ["celery", "-A", "app.worker.celery_app", "beat", "-l", "INFO", "-s", "/tmp/celerybeat-schedule"]
-    env_file: ./backend/.env
-    environment:
-      DATABASE_URL: postgresql://nexpay:nexpay_dev@postgres:5432/nexpay
-      REDIS_URL: redis://redis:6379
+    <<: *api-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  # Single public entry point.
+  gateway:
+    image: nginx:1.27-alpine
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./gateway/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       api-py:
         condition: service_healthy

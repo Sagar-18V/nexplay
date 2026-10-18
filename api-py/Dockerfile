@@ -5,6 +5,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
+COPY alembic.ini ./
+COPY migrations ./migrations
 EXPOSE 8000
-# No migrations here on purpose: Prisma (in the Node container) still owns the schema.
+# Migrations run in the one-shot `migrate` service (python -m app.ops.migrate), not here,
+# so several API replicas never race each other on the schema.
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]

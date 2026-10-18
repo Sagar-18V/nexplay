@@ -1,33 +1,42 @@
 """
 GET /v1/metrics — port of metrics.routes.js.
 
-Unauthenticated today (finding D3); preserved for parity, ADMIN-gate it after cutover.
+Unauthenticated today (finding D3); preserved for parity, ADMIN-gate it next.
 
-Queue counts are read straight from BullMQ's Redis keys, because the queues are still
-owned by Node until Step 6. This mirrors BullMQ 5.x Queue#getJobCounts() exactly,
-EXCEPT one thing: BullMQ's getCounts.lua RPOPs a deprecated "0:" marker off the wait
-list while counting. We apply the same correction to the number but never write:
-a migrated read endpoint must not mutate queues another service owns.
+Queue section, same shape as Express's BullMQ getJobCounts() so the dashboard works
+unchanged, but sourced from what exists after Step 7:
+  * waiting / active / delayed  <- Celery's Redis broker: the queue list, plus the
+    `unacked` hash (tasks a worker holds; a future `eta` means a scheduled retry)
+  * completed / failed          <- the database: the business outcome of each job
+    (refunds SUCCEEDED/FAILED, webhooks DELIVERED/FAILED, recon jobs COMPLETED/FAILED).
+    Celery keeps no job history (results are ignored), and BullMQ's counters were only
+    ever a proxy for these rows anyway.
+  * paused / prioritized / waiting-children: BullMQ-only states, always 0, kept so the
+    response shape (a contract) doesn't change.
+Steps 4-6 read BullMQ's own keys here instead (and never wrote to them, D11).
 """
+import json
 from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.core.redis import get_redis
 from app.core.serialization import iso_js
-from app.db.models import GatewayStat
+from app.db.enums import ReconJobStatus, RefundStatus, WebhookStatus
+from app.db.models import GatewayStat, ReconciliationGatewayJob, Refund, WebhookLog
 
 router = APIRouter()
 
-BULL_PREFIX = "bull"
-# Queue#getJobCounts() with no args -> this list, in this order (sanitizeJobTypes).
-JOB_TYPES = ["active", "completed", "delayed", "failed", "paused", "prioritized", "waiting", "waiting-children"]
-LIST_TYPES = {"wait", "paused", "active"}
-QUEUES = {"refunds": "refunds", "webhooks": "webhooks", "reconciliation": "recon-gateway"}
+# dashboard name -> (Celery queue, model, completed status, failed status)
+QUEUES = {
+    "refunds": ("refunds", Refund, RefundStatus.SUCCEEDED, RefundStatus.FAILED),
+    "webhooks": ("webhooks", WebhookLog, WebhookStatus.DELIVERED, WebhookStatus.FAILED),
+    "reconciliation": ("recon", ReconciliationGatewayJob, ReconJobStatus.COMPLETED, ReconJobStatus.FAILED),
+}
 
 
 def js_to_fixed(value: float, digits: int) -> str:
@@ -43,28 +52,46 @@ def success_rate(success: int, failure: int) -> str:
     return js_to_fixed(success / total * 100, 1) + "%" if total > 0 else "n/a"
 
 
-async def job_counts(queue: str) -> dict[str, int]:
-    base = f"{BULL_PREFIX}:{queue}:"
-    redis_types = ["wait" if t == "waiting" else t for t in JOB_TYPES]  # getCountsArgs
+async def _broker_counts() -> dict[str, dict[str, int]]:
+    """waiting/active/delayed per Celery queue, from the Redis broker (read-only)."""
+    redis = get_redis()
+    names = [q for q, *_ in QUEUES.values()]
+    pipe = redis.pipeline(transaction=False)
+    for q in names:
+        pipe.llen(q)
+    pipe.hvals("unacked")
+    *lengths, unacked = await pipe.execute()
 
-    pipe = get_redis().pipeline(transaction=False)
-    for t in redis_types:
-        if t in LIST_TYPES:
-            pipe.llen(base + t)
-            pipe.lindex(base + t, -1)
-        else:
-            pipe.zcard(base + t)
-    results = iter(await pipe.execute())
+    out = {q: {"waiting": n or 0, "active": 0, "delayed": 0} for q, n in zip(names, lengths)}
+    now = datetime.now(timezone.utc)
+    for raw in unacked:
+        try:
+            message, _exchange, routing_key = json.loads(raw)
+            eta = message.get("headers", {}).get("eta")
+        except (ValueError, TypeError):
+            continue
+        if routing_key in out:
+            delayed = eta is not None and datetime.fromisoformat(eta) > now
+            out[routing_key]["delayed" if delayed else "active"] += 1
+    return out
 
-    counts: dict[str, int] = {}
-    for name, t in zip(JOB_TYPES, redis_types):
-        count = next(results)
-        if t in LIST_TYPES:
-            tail = next(results)
-            if t != "active" and tail is not None and str(tail).startswith("0:"):
-                count = count - 1 if count > 1 else 0  # marker, not a job
-        counts[name] = count or 0
-    return counts
+
+async def _outcome_counts(session: AsyncSession, model, ok, failed) -> tuple[int, int]:
+    row = (await session.execute(
+        select(func.count().filter(model.status == ok), func.count().filter(model.status == failed))
+    )).one()
+    return row[0], row[1]
+
+
+async def queue_counts(session: AsyncSession) -> dict[str, dict[str, int]]:
+    broker = await _broker_counts()
+    result = {}
+    for name, (queue, model, ok, failed) in QUEUES.items():
+        completed, failed_n = await _outcome_counts(session, model, ok, failed)
+        b = broker[queue]
+        result[name] = {"active": b["active"], "completed": completed, "delayed": b["delayed"], "failed": failed_n,
+                        "paused": 0, "prioritized": 0, "waiting": b["waiting"], "waiting-children": 0}
+    return result
 
 
 @router.get("/v1/metrics")
@@ -85,6 +112,6 @@ async def metrics(session: AsyncSession = Depends(get_session)):
         "data": {
             "timestamp": iso_js(datetime.now(timezone.utc).replace(tzinfo=None)),
             "gateways": gateways,
-            "queues": {name: await job_counts(q) for name, q in QUEUES.items()},
+            "queues": await queue_counts(session),
         },
     }

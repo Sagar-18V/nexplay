@@ -1,29 +1,31 @@
-# NexPay: Express → FastAPI migration (strangler fig)
+# NexPay: Express → FastAPI migration (strangler fig) — complete
 
-Users never see a "migration day". An nginx gateway sits in front of both services,
-and routes move from Express to FastAPI one at a time. Each move can be rolled back
-by deleting one `location` block in `gateway/nginx.conf`.
+NexPay was migrated from Node/Express + Prisma + BullMQ to Python/FastAPI + SQLAlchemy +
+Alembic + Celery **without a "migration day"**: an nginx gateway sat in front of both
+services and routes moved one at a time, each gated by contract tests recorded from
+Express, with a one-line rollback. Step 7 removed Express. Each step is its own branch
+(`migration/step-1-…` through `migration/step-7-…`), so the history reads like the rollout.
 
 ```
-React (Vite)  ──/v1──▶  nginx :8080  ──┬──▶  FastAPI :8000   (migrated routes)
-                                       └──▶  Express :3000   (everything else)
-                                                 │
-                         both share ──▶  Postgres (schema owned by Prisma until Step 7)
-                                         Redis    (rate limits, refresh tokens, queues)
+Before:  React ──▶ Express ──▶ Prisma ──▶ Postgres          BullMQ workers (in the API process)
+During:  React ──▶ nginx ──┬──▶ Express ──┐                  (shared DB + Redis, route by route)
+                           └──▶ FastAPI ──┴──▶ Postgres / Redis
+After:   React ──▶ nginx ──▶ FastAPI ──▶ SQLAlchemy ──▶ Postgres (schema: Alembic)
+                              └──▶ Celery workers + beat ──▶ Redis
 ```
 
-## Ground rules
-1. **One owner per route.** A route is either Express or FastAPI, never both live at once (shadow traffic doesn't count).
-2. **The contract doesn't change.** Same paths, status codes, JSON shapes, cookie names/paths, and error body `{success, message, requestId}`.
-3. **Prisma owns the schema until Express is gone.** FastAPI never runs DDL. Alembic takes over in Step 7.
-4. **Shared secrets.** Both services read `backend/.env`, so a JWT issued by one verifies on the other.
-5. **Every cutover has a rollback.** Revert the nginx block and reload, with no deploy needed.
+## Ground rules (held for every step)
+1. **One owner per route** at any moment; ownership lives in `gateway/nginx.conf`.
+2. **The contract doesn't change** (paths, status codes, JSON, cookies, error envelope), except deliberate, documented fixes, each with a test proving the old defect (`fixed_in_fastapi`).
+3. **Prisma owned the schema until Express was gone**; Alembic took over in Step 7 with a baseline proven identical.
+4. **Shared secrets and shared state** (JWT, refresh tokens, rate-limit buckets, DB rows), so either backend could serve any request mid-migration.
+5. **Every cutover had a rollback**, and the rollback path was tested.
 
 ## Route ownership
 
 | Route | Owner | Step | Notes |
 |---|---|---|---|
-| `GET /v1/health` | **FastAPI** ✅ | 1 | New route; Express never had it |
+| `GET /`, `GET /v1/health` | **FastAPI** ✅ | 1, 7 | health is new; `/` moved with Step 7 |
 | `GET /v1/metrics` | **FastAPI** ✅ | 4 | reads BullMQ counts from Redis read-only (D11); **unauthenticated** (D3) |
 | `GET /v1/auth/me`, `GET /v1/auth/merchants` | **FastAPI** ✅ | 3 | `authenticate` / `require_role` dependencies |
 | `POST /v1/auth/register·login·refresh·logout` | **FastAPI** ✅ | 3 | tokens, refresh keys and hashes interchangeable with Express |
@@ -41,53 +43,44 @@ React (Vite)  ──/v1──▶  nginx :8080  ──┬──▶  FastAPI :8000
 
 ## Steps
 - [x] **1. Facade + skeleton.** nginx gateway, FastAPI service on the shared DB/Redis, request-id propagation, Express-compatible errors and logs, `/v1/health`.
-- [x] **2. Foundations + contract tests.** SQLAlchemy models for all 12 Prisma tables, a Prisma-compatible JSON serializer, a schema drift test, a deterministic seed, 44 contract tests (49 goldens) recorded against Express, and a shadow-diff tool.
+- [x] **2. Foundations + contract tests.** SQLAlchemy models for all 12 Prisma tables, a Prisma-compatible JSON serializer, a schema drift test, a deterministic seed, 44 contract tests (49 goldens) recorded against Express, and a shadow-diff tool (removed in Step 7 with Express).
 - [x] **3. Auth.** All six `/v1/auth/*` routes on FastAPI with identical contracts (18 goldens), plus 8 mixed-fleet interop tests: access tokens, refresh tokens, password hashes and logout work across Express ⇄ FastAPI in both directions, so rollback never logs anyone out.
-- [ ] **3b. Auth hardening** (deliberate behaviour changes, after the parity cutover): refresh-token family revocation on reuse (D2), login/register rate limit keyed on the real client IP (D4, D9).
+- [ ] **Next: auth hardening** (deliberate behaviour changes, after the parity cutover): refresh-token family revocation on reuse (D2), login/register rate limit keyed on the real client IP (D4, D9).
 - [x] **4. Read endpoints.** 8 GET routes on FastAPI. Gate before the flip: contracts green against FastAPI directly and shadow_diff 14/14 (Express vs FastAPI on the same data). nginx routes by **method** on mixed paths, so writes stay on Express. Rate-limit buckets are shared, so splitting traffic doesn't double anyone's limit. BullMQ counts verified against real jobs in delayed/paused/prioritized/active/failed states. D1 fixed (with xfail-strict proof that Express still has it).
 - [x] **5. Payment writes (canary 10% → 100% in Step 6).** Create and process intents on FastAPI: gateways, weighted routing, 3-hop fallback, double-entry ledger, gateway stats, webhook events. **Celery replaces BullMQ** for webhook delivery: same HMAC body and signature (your `reciver.js` validates both), 3 attempts with 2 s/4 s backoff, then `FAILED`. nginx sends a sticky share of sessions (hash of the bearer token) to FastAPI; `X-NexPay-Backend: py|node` pins a request. Before ramping: three money bugs reproduced on Express (D12–D14). D13/D14 are hotfixed in Express too, because Express still serves ~90% of writes. Mixed-fleet races (concurrent `/process` split across both backends) charge exactly once.
   - **Ramp:** edit `split_clients` in `gateway/nginx.conf` 10% → 50% → 100%, `nginx -s reload`, watching for 5xx and ledger imbalance. **Rollback:** 0%.
 - [x] **6. Queues → Celery.** Refund creation, webhook redelivery and the recon trigger moved to FastAPI and enqueue Celery tasks; the payment canary was ramped to 100%, so nothing produces BullMQ jobs any more. Reconciliation's BullMQ flow (parent waits for 4 children, even failed ones) became 4 Celery tasks plus a **single conditional UPDATE** that finalizes the run when the last one reaches a terminal state: no chord, no result backend, and a dead gateway can't block the run. The settlement generator and engine are bit-identical to Node (tested against output from the real Node code). Celery beat runs the 02:00 UTC reconciliation that BullMQ never actually scheduled (D18).
   - **Drain-and-switch (how it was cut over):** 1) route every producer to FastAPI (nginx) → 2) `python -m app.ops.bullmq_drain --wait 600` until `DRAINED` (Node workers finish in-flight jobs) → 3) `RUN_BULLMQ_WORKERS=0` on Express and restart. **Rollback:** route back in nginx *and* set `RUN_BULLMQ_WORKERS=1`, or Express's jobs sit in Redis unprocessed.
-- [ ] **7. Decommission Express.** Alembic baseline + `stamp`, nginx default → FastAPI, delete `backend/`.
+- [x] **7. Decommission Express.** Alembic owns the schema: revision `0001_prisma_baseline` is Prisma's four migrations verbatim, and a `pg_dump --schema-only` diff of a Prisma-built vs an Alembic-built database is **empty (60 DDL statements)**. `python -m app.ops.migrate` (the compose `migrate` service) handles every database state: fresh → build; Prisma-managed → verify all 4 Prisma migrations applied, stamp baseline, upgrade; unmanaged → refuse unless `--adopt-unmanaged`. Revision `0002` makes idempotency keys **unique per merchant** (the real fix for D14/D20), built with `CREATE UNIQUE INDEX CONCURRENTLY` before the old index is dropped: applied to the live local database with 60/60 health checks passing during it. Models now match the database exactly (Prisma naming convention, `ON DELETE RESTRICT ON UPDATE CASCADE`, unique indexes), so `alembic revision --autogenerate` is a verified no-op and can't emit a destructive migration. `/v1/metrics` queue counts come from Celery's broker + job outcomes in the DB (same response shape). `backend/` deleted; nginx is a plain reverse proxy; the merchant webhook verifier lives on in `examples/webhook-receiver/`. **Verified from scratch:** empty database → `migrate` → full suite green, no Node or Prisma anywhere.
 
 ## Tests
 | Suite | What it proves | Needs |
 |---|---|---|
-| `tests/unit` | serializer parity (dates, BigInt, enums), error shape, health | nothing |
-| `tests/integration` | SQLAlchemy models == Prisma-migrated schema (tables, columns, types, nullability, FKs, enum labels) | `TEST_DATABASE_URL` |
-| `tests/contract` | black-box HTTP behaviour == Express goldens (status, headers, cookies, body) | running stack + **disposable** DB |
-
-Contract goldens are recorded from **Express** and replayed against whatever the gateway serves.
-A route can only move to FastAPI once its contracts pass against FastAPI.
+| `tests/unit` (108) | JS-compatible semantics (Number, toFixed, Math.round, mulberry32), fees, routing, ledger balance, HMAC bytes vs Node, Celery retry/dead-letter/finalize policies, metrics parsing | nothing |
+| `tests/integration` (29) | models == migrated DB: tables, columns, types, FKs, enum labels, per-merchant unique indexes, at Alembic head, **autogenerate is a no-op** | `TEST_DATABASE_URL` |
+| `tests/contract` (61) | black-box HTTP behaviour == Express goldens; money invariants (one charge per intent, balanced ledger, no over-refund) under concurrency; async flows through Celery | running stack + **disposable** DB |
 
 ```bash
 cd api-py && pip install -r requirements-dev.txt
-pytest -q                                              # unit only (others skip without env)
+pytest -q tests/unit
 
-docker compose up -d --build
+docker compose up -d --build                         # migrate runs first, then api/worker/beat/gateway
 export TEST_DATABASE_URL=postgresql://nexpay:nexpay_dev@localhost:5432/nexpay
-pytest -q tests/integration                            # schema drift
+pytest -q tests/integration
 
-export CONTRACT_BASE_URL=http://localhost:8080 \
-       CONTRACT_DATABASE_URL=$TEST_DATABASE_URL CONTRACT_REDIS_URL=redis://localhost:6379 \
-       CONTRACT_ALLOW_RESET=1                          # seed TRUNCATES all tables — local DB only
-pytest -q tests/contract                               # verify against goldens
-export CONTRACT_NODE_URL=http://localhost:3000 CONTRACT_PY_URL=http://localhost:8000
-pytest -q tests/contract/test_auth_interop.py         # Express <-> FastAPI session interop (needs ports published)
-pytest -q tests/contract/test_payments_interop.py     # create/replay/process across backends + split-backend races
-CONTRACT_PIN_BACKEND=py pytest -q tests/contract      # through the gateway with all writes pinned to FastAPI
-celery -A app.worker.celery_app worker -Q webhooks,refunds,recon   # docker compose: `worker`
-celery -A app.worker.celery_app beat                                # docker compose: `beat` (run ONE)
-python -m app.ops.bullmq_drain                        # 0 = no legacy BullMQ jobs left
-# tests/contract/test_async_flows.py needs the worker running. Validating the Express
-# rollback path (CONTRACT_TARGET=express) needs RUN_BULLMQ_WORKERS=1 on Express.
-CONTRACT_RECORD=1 pytest -q tests/contract             # re-record (only from Express, on purpose)
+export CONTRACT_BASE_URL=http://localhost:8080 CONTRACT_DATABASE_URL=$TEST_DATABASE_URL \
+       CONTRACT_REDIS_URL=redis://localhost:6379 CONTRACT_ALLOW_RESET=1   # TRUNCATES all tables
+pytest -q tests/contract
 
-python -m tests.contract.shadow_diff --old http://localhost:3000 --new http://localhost:8000
+DATABASE_URL=$TEST_DATABASE_URL alembic check        # models vs migrations
 ```
 The seed refuses to run without `CONTRACT_ALLOW_RESET=1` and refuses hosted hosts (Neon/Upstash/AWS).
-(In compose, Express/FastAPI ports aren't published; add `ports:` locally to run shadow_diff.)
+Goldens were recorded from Express (Steps 2–6). To replay them against Express itself, check out
+`migration/step-6-celery`, where the interop tests, shadow diff and `CONTRACT_TARGET=express` live.
+
+### New schema changes from now on
+Edit `app/db/models.py` → `alembic revision --autogenerate -m "..."` → review → `python -m app.ops.migrate`.
+For big tables, build indexes `CONCURRENTLY` inside `op.get_context().autocommit_block()` (see `0002`).
 
 ## Porting traps (caught by tests, not Express bugs)
 - JS `toFixed` rounds exact binary ties **up**, Python's `format()` rounds them to **even**: 1 success / 15 failures is `"6.3%"` in Node and would have been `"6.2%"` in Python. `metrics.js_to_fixed` uses `Decimal` + `ROUND_HALF_UP`.
@@ -115,10 +108,10 @@ Behaviour discovered while writing the contracts. Each has a decision so nothing
 | D11 | BullMQ's `getJobCounts()` script **writes** while counting (RPOPs a deprecated `0:` marker off the wait list). | FastAPI applies the same correction to the number but never writes: a migrated read must not mutate queues another service owns. |
 | D12 | Concurrent creates with one `Idempotency-Key` → unique-index failure → **500 echoing Prisma's error with the source file, line numbers and code excerpt**. Reproduced: 10 parallel → 5×500. | **Fixed in FastAPI**: catch the conflict and return the idempotent replay (1×201, 9×200, one intent). Not hotfixed in Express (no money impact); `fixed_in_fastapi`. |
 | D13 | `/process` read the status, checked `=== 'CREATED'` in JS, then wrote `PROCESSING`. **Concurrent calls each charged the customer and wrote ledger entries.** Reproduced: 30 simultaneous calls, 5 of 8 rounds charged more than once, up to 4× (₹2,000 debited on a ₹500 intent). | **Fixed in FastAPI** (one conditional `UPDATE … WHERE status='CREATED' RETURNING`) **and hotfixed in Express** (`updateMany` + count), since Express serves writes during the canary. After: 0 of 8. Mixed-fleet race test: exactly one charge. |
-| D14 | Idempotency keys are globally unique and the replay lookup ignored the merchant: **merchant B reusing A's key got A's intent (amount, customer email) with a 200.** Reproduced. | **Fixed in both**: 409, revealing nothing. Proper per-merchant keys need a schema change (`@@unique([merchantId, idempotencyKey])`), planned for Step 7 when Alembic takes over. |
+| D14 | Idempotency keys are globally unique and the replay lookup ignored the merchant: **merchant B reusing A's key got A's intent (amount, customer email) with a 200.** Reproduced. | **Fixed in both**: 409, revealing nothing. **Step 7:** keys are now unique per merchant (Alembic `0002`), so another merchant's identical key is simply a new request. |
 | D15 | StripeIN's fee is 2.9% + ₹3 flat, so for payments under about ₹3.09 the fee exceeds the amount and the ledger credits the merchant a **negative** `MERCHANT_PAYABLE` (₹1.25 → −₹1.79). Balanced, but wrong. | **Preserved** (pinned by a unit test). Business decision needed: minimum amount or fee cap. |
 | D16 | Webhook URLs are merchant-supplied and the worker POSTs to them as-is: **SSRF** (a merchant can point it at internal hosts). Same in Celery port. | Open. Fix after Step 6: allowlist schemes, resolve and block private/link-local ranges. |
 | D17 | If the process dies mid-`/process` (after the claim, before the outcome commits), the intent stays `PROCESSING` forever. Same in both. | Open. Needs a sweeper plus a gateway status query (idempotent by intent id). |
 | D18 | The 02:00 daily reconciliation was **never scheduled**: `registerReconciliationSchedule()` and `schedulerWorker` exist but nothing imports or calls them. Reconciliation only ever ran when someone hit the manual trigger. | **Fixed**: Celery beat, `crontab(hour=2, minute=0)` UTC, `recon.daily` (idempotent via unique `runDate`). |
 | D19 | The settlement generator reads `p.updatedAt`, which transactions don't have. **Any gateway with payments that day crashed** (`Cannot read properties of undefined (reading 'toISOString')`) → 3 attempts → `FAILED`; the run was labelled `PARTIAL`, hiding it. Reproduced: today's run → RAZORX/STRIPEIN/PAYFLOW FAILED, SWIFTPAY (no payments) COMPLETED. **Reconciliation could never succeed in production.** | **Fixed in FastAPI**: `settled_at` from `createdAt` (unused downstream). Same run → 4/4 COMPLETED on the first attempt. `fixed_in_fastapi`. |
-| D20 | Same flaw as D14 on refunds: **merchant B reusing A's refund `Idempotency-Key` got A's refund** (amount, reason). Reproduced. | **Fixed in FastAPI** (409). Express's route is no longer reachable through the gateway. |
+| D20 | Same flaw as D14 on refunds: **merchant B reusing A's refund `Idempotency-Key` got A's refund** (amount, reason). Reproduced. | **Fixed in FastAPI** (409), then properly in Step 7 with per-merchant keys (Alembic `0002`). |

@@ -7,6 +7,7 @@ Three Express defects are fixed here, each reproduced against Express first
   * D12 concurrent creates with one Idempotency-Key -> 500 leaking source code
   * D13 concurrent /process on one intent -> the payment is charged N times
   * D14 an Idempotency-Key used by another merchant -> returns THEIR intent + metadata
+    (Step 7: keys are now unique per merchant, so that key is just a new request)
 """
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
@@ -115,16 +116,17 @@ def _parse_amount(value) -> int | None:
     return value if 0 < value <= INT4_MAX else None
 
 
-async def _replay_or_conflict(session: AsyncSession, key: str, merchant_id: str) -> JSONResponse | None:
-    existing = await session.scalar(select(PaymentIntent).where(PaymentIntent.idempotency_key == key))
+async def _replay(session: AsyncSession, key: str, merchant_id: str) -> JSONResponse | None:
+    """
+    Idempotent replay within the merchant's own key namespace (Alembic 0002). Before Step 7
+    keys were global: Express leaked another merchant's intent here (D14) and Steps 5-6
+    answered 409. Now another merchant's identical key is simply a different request.
+    """
+    existing = await session.scalar(select(PaymentIntent).where(
+        PaymentIntent.merchant_id == merchant_id, PaymentIntent.idempotency_key == key))
     if existing is None:
         return None
-    if existing.merchant_id != merchant_id:
-        # D14: Express returned the other merchant's intent (amount, metadata) with a 200.
-        # The key is globally unique in the schema, so we can't let it through either:
-        # refuse without revealing anything about the existing request.
-        raise AppError("Idempotency-Key is already in use; use a unique key per request", 409)
-    # Same merchant: idempotent replay. Express returns the bare intent (no transactions).
+    # Express returns the bare intent on replay (no transactions); so do we.
     return JSONResponse({"success": True, "data": to_json(existing)}, status_code=200)
 
 
@@ -150,7 +152,7 @@ async def create_intent(
         raise AppError("Idempotency-Key header is required", 400)
 
     # Replay is checked BEFORE validating method/currency, exactly like Express.
-    if (replay := await _replay_or_conflict(session, key, merchant.id)) is not None:
+    if (replay := await _replay(session, key, merchant.id)) is not None:
         return replay
 
     # Express hands these to Prisma unvalidated -> 500 with internals (D1 class). 400 instead.
@@ -172,7 +174,7 @@ async def create_intent(
         # D12: a concurrent request won the race for this key. Express surfaced Prisma's
         # P2002 as a 500 with source code; resolve it as the idempotent replay it is.
         await session.rollback()
-        if (replay := await _replay_or_conflict(session, key, merchant.id)) is not None:
+        if (replay := await _replay(session, key, merchant.id)) is not None:
             return replay
         raise
 

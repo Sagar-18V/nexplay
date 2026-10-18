@@ -1,0 +1,7 @@
+{
+  "name": "nexpay-webhook-receiver-example",
+  "private": true,
+  "description": "Merchant-side example: verifies X-NexPay-Signature (HMAC-SHA256 of the raw body with your apiKey).",
+  "scripts": { "start": "node receiver.js" },
+  "dependencies": { "express": "^5.2.1" }
+}

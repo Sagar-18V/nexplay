@@ -17,7 +17,7 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Any
 
-from sqlalchemy import BigInteger, Boolean, Date, ForeignKey, Integer, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Date, ForeignKey, Index, Integer, MetaData, Text
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -41,8 +41,23 @@ def utcnow_ms() -> datetime:
 TS = TIMESTAMP(precision=3, timezone=False)
 
 
+# Prisma's naming scheme, so constraint/index names in the models equal the ones in the
+# database and `alembic revision --autogenerate` produces an EMPTY diff (Step 7 test).
+NAMING_CONVENTION = {
+    "pk": "%(table_name)s_pkey",
+    "fk": "%(table_name)s_%(column_0_name)s_fkey",
+    "ix": "%(table_name)s_%(column_0_N_name)s_idx",
+    "uq": "%(table_name)s_%(column_0_N_name)s_key",
+}
+
+
 class Base(DeclarativeBase):
-    pass
+    metadata = MetaData(naming_convention=NAMING_CONVENTION)
+
+
+def fk(target: str, ondelete: str = "RESTRICT") -> ForeignKey:
+    """Prisma's default referential actions: ON DELETE RESTRICT ON UPDATE CASCADE."""
+    return ForeignKey(target, ondelete=ondelete, onupdate="CASCADE")
 
 
 def pk() -> Mapped[str]:
@@ -55,13 +70,17 @@ def created_at() -> Mapped[datetime]:
 
 class Merchant(Base):
     __tablename__ = "merchants"
+    __table_args__ = (
+        Index("merchants_email_key", "email", unique=True),
+        Index("merchants_apiKey_key", "apiKey", unique=True),
+    )
 
     id: Mapped[str] = pk()
     name: Mapped[str] = mapped_column("name", Text)
-    email: Mapped[str] = mapped_column("email", Text, unique=True)
+    email: Mapped[str] = mapped_column("email", Text)
     password: Mapped[str] = mapped_column("password", Text)
     role: Mapped[Role] = mapped_column("role", pg_enum(Role), default=Role.MERCHANT)
-    api_key: Mapped[str] = mapped_column("apiKey", Text, unique=True, default=new_id)
+    api_key: Mapped[str] = mapped_column("apiKey", Text, default=new_id)
     webhook_url: Mapped[str | None] = mapped_column("webhookUrl", Text)
     is_active: Mapped[bool] = mapped_column("isActive", Boolean, default=True)
     created_at: Mapped[datetime] = created_at()
@@ -71,16 +90,20 @@ class Merchant(Base):
 
 class PaymentIntent(Base):
     __tablename__ = "payment_intents"
+    # Alembic 0002: idempotency keys are unique PER MERCHANT (was global under Prisma: D14).
+    __table_args__ = (
+        Index("payment_intents_merchantId_idempotencyKey_key", "merchantId", "idempotencyKey", unique=True),
+    )
 
     id: Mapped[str] = pk()
-    merchant_id: Mapped[str] = mapped_column("merchantId", Text, ForeignKey("merchants.id"))
+    merchant_id: Mapped[str] = mapped_column("merchantId", Text, fk("merchants.id"))
     amount: Mapped[int] = mapped_column("amount", Integer)
     currency: Mapped[str] = mapped_column("currency", Text, default="INR")
     method: Mapped[PaymentMethod] = mapped_column("method", pg_enum(PaymentMethod))
     status: Mapped[PaymentStatus] = mapped_column(
         "status", pg_enum(PaymentStatus), default=PaymentStatus.CREATED
     )
-    idempotency_key: Mapped[str] = mapped_column("idempotencyKey", Text, unique=True)
+    idempotency_key: Mapped[str] = mapped_column("idempotencyKey", Text)
     metadata_: Mapped[Any | None] = mapped_column("metadata", JSONB)  # `metadata` is reserved
     created_at: Mapped[datetime] = created_at()
     updated_at: Mapped[datetime] = mapped_column(
@@ -95,7 +118,7 @@ class Transaction(Base):
     __tablename__ = "transactions"
 
     id: Mapped[str] = pk()
-    intent_id: Mapped[str] = mapped_column("intentId", Text, ForeignKey("payment_intents.id"))
+    intent_id: Mapped[str] = mapped_column("intentId", Text, fk("payment_intents.id"))
     gateway: Mapped[Gateway] = mapped_column("gateway", pg_enum(Gateway))
     amount: Mapped[int] = mapped_column("amount", Integer)
     status: Mapped[TransactionStatus] = mapped_column(
@@ -115,7 +138,7 @@ class Transaction(Base):
 
 class GatewayStat(Base):
     __tablename__ = "gateway_stats"
-    __table_args__ = (UniqueConstraint("gateway", "method", name="gateway_stats_gateway_method_key"),)
+    __table_args__ = (Index("gateway_stats_gateway_method_key", "gateway", "method", unique=True),)
 
     id: Mapped[str] = pk()
     gateway: Mapped[Gateway] = mapped_column("gateway", pg_enum(Gateway))
@@ -130,13 +153,13 @@ class LedgerEntry(Base):
     __tablename__ = "ledger_entries"
 
     id: Mapped[str] = pk()
-    txn_id: Mapped[str] = mapped_column("txnId", Text, ForeignKey("transactions.id"))
+    txn_id: Mapped[str] = mapped_column("txnId", Text, fk("transactions.id"))
     entry_type: Mapped[LedgerEntryType] = mapped_column("entryType", pg_enum(LedgerEntryType))
     account: Mapped[LedgerAccount] = mapped_column("account", pg_enum(LedgerAccount))
     amount: Mapped[int] = mapped_column("amount", Integer)
     created_at: Mapped[datetime] = created_at()
     refund_id: Mapped[str | None] = mapped_column(
-        "refundId", Text, ForeignKey("refunds.id", ondelete="SET NULL")
+        "refundId", Text, fk("refunds.id", ondelete="SET NULL")
     )
 
     transaction: Mapped[Transaction] = relationship(back_populates="ledger_entries")
@@ -147,7 +170,7 @@ class Settlement(Base):
     __tablename__ = "settlements"
 
     id: Mapped[str] = pk()
-    merchant_id: Mapped[str] = mapped_column("merchantId", Text, ForeignKey("merchants.id"))
+    merchant_id: Mapped[str] = mapped_column("merchantId", Text, fk("merchants.id"))
     amount: Mapped[int] = mapped_column("amount", Integer)
     status: Mapped[SettlementStatus] = mapped_column(
         "status", pg_enum(SettlementStatus), default=SettlementStatus.PENDING
@@ -161,7 +184,7 @@ class ReconciliationReport(Base):
     __tablename__ = "reconciliation_reports"
 
     id: Mapped[str] = pk()
-    merchant_id: Mapped[str] = mapped_column("merchantId", Text, ForeignKey("merchants.id"))
+    merchant_id: Mapped[str] = mapped_column("merchantId", Text, fk("merchants.id"))
     run_date: Mapped[datetime] = mapped_column("runDate", TS)
     total_txns: Mapped[int] = mapped_column("totalTxns", Integer)
     matched: Mapped[int] = mapped_column("matched", Integer)
@@ -176,7 +199,7 @@ class WebhookLog(Base):
     __tablename__ = "webhook_logs"
 
     id: Mapped[str] = pk()
-    merchant_id: Mapped[str] = mapped_column("merchantId", Text, ForeignKey("merchants.id"))
+    merchant_id: Mapped[str] = mapped_column("merchantId", Text, fk("merchants.id"))
     event: Mapped[str] = mapped_column("event", Text)
     payload: Mapped[Any] = mapped_column("payload", JSONB)
     attempts: Mapped[int] = mapped_column("attempts", Integer, default=0)
@@ -192,9 +215,10 @@ class WebhookLog(Base):
 
 class ReconciliationRun(Base):
     __tablename__ = "reconciliation_runs"
+    __table_args__ = (Index("reconciliation_runs_runDate_key", "runDate", unique=True),)
 
     id: Mapped[str] = pk()
-    run_date: Mapped[date] = mapped_column("runDate", Date, unique=True)
+    run_date: Mapped[date] = mapped_column("runDate", Date)
     status: Mapped[ReconRunStatus] = mapped_column(
         "status", pg_enum(ReconRunStatus), default=ReconRunStatus.PENDING
     )
@@ -207,11 +231,11 @@ class ReconciliationRun(Base):
 class ReconciliationGatewayJob(Base):
     __tablename__ = "reconciliation_gateway_jobs"
     __table_args__ = (
-        UniqueConstraint("runId", "gateway", name="reconciliation_gateway_jobs_runId_gateway_key"),
+        Index("reconciliation_gateway_jobs_runId_gateway_key", "runId", "gateway", unique=True),
     )
 
     id: Mapped[str] = pk()
-    run_id: Mapped[str] = mapped_column("runId", Text, ForeignKey("reconciliation_runs.id"))
+    run_id: Mapped[str] = mapped_column("runId", Text, fk("reconciliation_runs.id"))
     gateway: Mapped[Gateway] = mapped_column("gateway", pg_enum(Gateway))
     status: Mapped[ReconJobStatus] = mapped_column(
         "status", pg_enum(ReconJobStatus), default=ReconJobStatus.QUEUED
@@ -236,7 +260,7 @@ class ReconciliationDiscrepancy(Base):
 
     id: Mapped[str] = pk()
     gateway_job_id: Mapped[str] = mapped_column(
-        "gatewayJobId", Text, ForeignKey("reconciliation_gateway_jobs.id")
+        "gatewayJobId", Text, fk("reconciliation_gateway_jobs.id")
     )
     type: Mapped[DiscrepancyType] = mapped_column("type", pg_enum(DiscrepancyType), index=True)
     status: Mapped[DiscrepancyStatus] = mapped_column(
@@ -257,10 +281,15 @@ class ReconciliationDiscrepancy(Base):
 
 class Refund(Base):
     __tablename__ = "refunds"
+    # Alembic 0002: per-merchant idempotency keys (was global: D20).
+    __table_args__ = (
+        Index("refunds_merchantId_idempotencyKey_key", "merchantId", "idempotencyKey", unique=True),
+        Index("refunds_merchantId_createdAt_idx", "merchantId", "createdAt"),
+    )
 
     id: Mapped[str] = pk()
     transaction_id: Mapped[str] = mapped_column(
-        "transactionId", Text, ForeignKey("transactions.id"), index=True
+        "transactionId", Text, fk("transactions.id"), index=True
     )
     merchant_id: Mapped[str] = mapped_column("merchantId", Text)  # denormalised, no FK (as in Prisma)
     amount: Mapped[int] = mapped_column("amount", Integer)
@@ -269,7 +298,7 @@ class Refund(Base):
     gateway_refund_ref: Mapped[str | None] = mapped_column("gatewayRefundRef", Text)
     failure_reason: Mapped[str | None] = mapped_column("failureReason", Text)
     attempts: Mapped[int] = mapped_column("attempts", Integer, default=0)
-    idempotency_key: Mapped[str] = mapped_column("idempotencyKey", Text, unique=True)
+    idempotency_key: Mapped[str] = mapped_column("idempotencyKey", Text)
     created_at: Mapped[datetime] = created_at()
     processed_at: Mapped[datetime | None] = mapped_column("processedAt", TS)
 

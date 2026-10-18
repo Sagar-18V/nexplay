@@ -72,17 +72,23 @@ def test_create_intent_unknown_method(api, tokens, reset_rate_limits):
     assert_contract("intent_create_unknown_method", r)
 
 
-def test_idempotency_key_owned_by_another_merchant_is_refused(api, tokens, reset_rate_limits):
-    # D14: Express used to return Alpha's intent (incl. customer metadata) to Beta with a 200.
-    # Hotfixed in Express too (Express keeps serving writes during the canary), so: parity.
+def test_idempotency_keys_are_scoped_per_merchant(api, tokens, reset_rate_limits):
+    # D14: Express returned Alpha's intent (incl. customer metadata) to Beta with a 200.
+    # Steps 5-6 refused with 409 (keys were globally unique). Step 7 (Alembic 0002) scopes
+    # keys per merchant: Beta's "order-1" is a different request from Alpha's "order-1".
     reset_rate_limits()
     key = _key("d14")
-    api.post("/v1/payments/intents", json={"amount": 777700, "method": "CARD", "metadata": {"email": "vip@a.in"}},
-             headers={**bearer(tokens["alpha"]), "Idempotency-Key": key})
-    r = api.post("/v1/payments/intents", json={"amount": 100, "method": "UPI"},
-                 headers={**bearer(tokens["beta"]), "Idempotency-Key": key})
-    assert_contract("intent_create_foreign_idempotency_key", r)
-    assert "vip@a.in" not in r.text
+    alpha = api.post("/v1/payments/intents", json={"amount": 777700, "method": "CARD", "metadata": {"email": "vip@a.in"}},
+                     headers={**bearer(tokens["alpha"]), "Idempotency-Key": key})
+    beta = api.post("/v1/payments/intents", json={"amount": 100, "method": "UPI"},
+                    headers={**bearer(tokens["beta"]), "Idempotency-Key": key})
+    assert alpha.status_code == beta.status_code == 201
+    assert beta.json()["data"]["merchantId"] == sid(2) and beta.json()["data"]["id"] != alpha.json()["data"]["id"]
+    assert "vip@a.in" not in beta.text
+
+    replay = api.post("/v1/payments/intents", json={"amount": 777700, "method": "CARD"},
+                      headers={**bearer(tokens["alpha"]), "Idempotency-Key": key})
+    assert replay.status_code == 200 and replay.json()["data"]["id"] == alpha.json()["data"]["id"]
 
 
 @pytest.mark.fixed_in_fastapi("D12")

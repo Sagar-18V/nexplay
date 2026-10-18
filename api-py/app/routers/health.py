@@ -55,3 +55,9 @@ async def health():
             },
         },
     )
+
+
+@router.get("/", include_in_schema=False)
+async def root():
+    # Express served this at `/`. Its body pointed at '/api/health', which never existed.
+    return {"service": "NexPay API", "docs": "/v1/health"}
